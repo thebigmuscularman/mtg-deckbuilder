@@ -10,22 +10,19 @@ import type {
 } from "./types";
 import { getDisplayName } from "./scryfall";
 
+const cardLineSchema = z.object({
+  name: z.string(),
+  quantity: z.number().int().positive(),
+  reason: z.string().optional(),
+});
+
 const deckSchema = z.object({
   name: z.string(),
   description: z.string(),
   commander: z.string().nullable(),
-  mainboard: z.array(
-    z.object({
-      name: z.string(),
-      quantity: z.number().int().positive(),
-    }),
-  ),
-  sideboard: z.array(
-    z.object({
-      name: z.string(),
-      quantity: z.number().int().positive(),
-    }),
-  ),
+  commanderReason: z.string().optional(),
+  mainboard: z.array(cardLineSchema),
+  sideboard: z.array(cardLineSchema),
   strategy: z.string(),
   warnings: z.array(z.string()).optional(),
 });
@@ -60,31 +57,26 @@ Design principles:
 - NEVER exceed owned quantities
 - Use exact English card names as they appear on Scryfall
 
+For EVERY card you include (mainboard, sideboard, and commander) give a short "reason" (one sentence, 8-20 words) explaining why it earns its slot in THIS deck — its role, synergy, or matchup it answers. Be specific to the deck's plan, not generic.
+
 Respond with JSON only matching this schema:
 {
   "name": "deck name",
   "description": "short summary",
   "commander": "Card Name or null",
-  "mainboard": [{ "name": "Exact Card Name", "quantity": 4 }],
-  "sideboard": [{ "name": "Exact Card Name", "quantity": 2 }],
+  "commanderReason": "why this commander, or null",
+  "mainboard": [{ "name": "Exact Card Name", "quantity": 4, "reason": "Cheap removal that swings tempo." }],
+  "sideboard": [{ "name": "Exact Card Name", "quantity": 2, "reason": "Comes in vs aggro for early blockers." }],
   "strategy": "how to pilot the deck",
   "warnings": ["optional notes about missing pieces"]
 }`;
 }
 
-export async function buildDeckWithAI(
+function buildBaseUserMessage(
   format: FormatId,
   resolved: ResolvedCollectionCard[],
   strategyHint?: string,
-): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "OPENAI_API_KEY is not set. Add it to .env.local to enable AI deck building.",
-    );
-  }
-
-  const client = new OpenAI({ apiKey });
+): string {
   const collectionContext = buildCollectionContext(resolved);
   const unresolved = resolved.filter((r) => !r.card).map((r) => r.entry.name);
 
@@ -95,15 +87,28 @@ export async function buildDeckWithAI(
   if (unresolved.length) {
     userMessage += `\n\nNote: these collection lines could not be resolved on Scryfall — do NOT use them: ${unresolved.join(", ")}`;
   }
+  return userMessage;
+}
 
+async function runDeckGeneration(
+  format: FormatId,
+  resolved: ResolvedCollectionCard[],
+  baseMessages: OpenAI.Chat.ChatCompletionMessageParam[],
+  maxAttempts: number,
+): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "OPENAI_API_KEY is not set. Add it to .env.local to enable AI deck building.",
+    );
+  }
+
+  const client = new OpenAI({ apiKey });
   let lastErrors: string[] = [];
   let parsedDeck: z.infer<typeof deckSchema> | null = null;
 
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-      { role: "system", content: systemPrompt(format) },
-      { role: "user", content: userMessage },
-    ];
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [...baseMessages];
 
     if (attempt > 0 && lastErrors.length) {
       messages.push({
@@ -148,7 +153,6 @@ export async function buildDeckWithAI(
     }
 
     lastErrors = validation.errors;
-    parsedDeck = parsed.data;
   }
 
   if (!parsedDeck) {
@@ -162,4 +166,56 @@ export async function buildDeckWithAI(
   };
 
   return { deck, validationErrors: lastErrors };
+}
+
+export async function buildDeckWithAI(
+  format: FormatId,
+  resolved: ResolvedCollectionCard[],
+  strategyHint?: string,
+): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
+  const userMessage = buildBaseUserMessage(format, resolved, strategyHint);
+  const baseMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt(format) },
+    { role: "user", content: userMessage },
+  ];
+  return runDeckGeneration(format, resolved, baseMessages, 2);
+}
+
+export async function refineDeckWithAI(
+  format: FormatId,
+  resolved: ResolvedCollectionCard[],
+  previousDeck: BuiltDeck,
+  errors: string[],
+  strategyHint?: string,
+): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
+  const userMessage = buildBaseUserMessage(format, resolved, strategyHint);
+  const previousJson = JSON.stringify(
+    {
+      name: previousDeck.name,
+      description: previousDeck.description,
+      commander: previousDeck.commander,
+      commanderReason: previousDeck.commanderReason,
+      mainboard: previousDeck.mainboard,
+      sideboard: previousDeck.sideboard,
+      strategy: previousDeck.strategy,
+    },
+    null,
+    2,
+  );
+
+  const baseMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt(format) },
+    { role: "user", content: userMessage },
+    { role: "assistant", content: previousJson },
+    {
+      role: "user",
+      content: `That deck has these problems — fix EVERY one and return corrected JSON only:\n${errors
+        .map((e) => `- ${e}`)
+        .join(
+          "\n",
+        )}\n\nKeep the same overall game plan and as many of the existing card choices as possible. Only change what is necessary to satisfy the rules and quantities.`,
+    },
+  ];
+
+  return runDeckGeneration(format, resolved, baseMessages, 3);
 }

@@ -7,6 +7,7 @@ type EnrichedLine = {
   name: string;
   quantity: number;
   card: ScryfallCard | null;
+  reason?: string;
 };
 
 interface DeckDisplayProps {
@@ -28,29 +29,38 @@ function CardRow({ line }: { line: EnrichedLine }) {
   const name = line.card ? getDisplayName(line.card) : line.name;
 
   return (
-    <li className="flex items-center gap-3 rounded-lg border border-amber-900/20 bg-stone-900/40 px-3 py-2">
+    <li className="flex gap-3 rounded-lg border border-amber-900/20 bg-stone-900/40 px-3 py-2">
       {image ? (
         <img
           src={image}
           alt={name}
-          className="h-14 w-10 shrink-0 rounded object-cover"
+          className="h-20 w-14 shrink-0 rounded object-cover"
         />
       ) : (
-        <div className="flex h-14 w-10 shrink-0 items-center justify-center rounded bg-stone-800 text-xs text-stone-500">
+        <div className="flex h-20 w-14 shrink-0 items-center justify-center rounded bg-stone-800 text-xs text-stone-500">
           ?
         </div>
       )}
       <div className="min-w-0 flex-1">
-        <p className="truncate font-medium text-amber-50">
-          <span className="text-amber-400">{line.quantity}x</span> {name}
-        </p>
+        <div className="flex items-start justify-between gap-2">
+          <p className="truncate font-medium text-amber-50">
+            <span className="text-amber-400">{line.quantity}x</span> {name}
+          </p>
+          {line.card?.mana_cost && (
+            <span className="shrink-0 font-mono text-sm text-sky-300">
+              {line.card.mana_cost}
+            </span>
+          )}
+        </div>
         {line.card && (
           <p className="truncate text-xs text-stone-400">{line.card.type_line}</p>
         )}
+        {line.reason && (
+          <p className="mt-1 text-xs leading-snug text-stone-300/80">
+            <span className="text-amber-500/80">Why:</span> {line.reason}
+          </p>
+        )}
       </div>
-      {line.card?.mana_cost && (
-        <span className="font-mono text-sm text-sky-300">{line.card.mana_cost}</span>
-      )}
     </li>
   );
 }
@@ -125,6 +135,7 @@ export function DeckDisplay({ deck, enriched, validation }: DeckDisplayProps) {
               name: getDisplayName(enriched.commander),
               quantity: 1,
               card: enriched.commander,
+              reason: deck.commanderReason,
             }}
           />
         </section>

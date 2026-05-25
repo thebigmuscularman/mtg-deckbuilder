@@ -88,6 +88,38 @@ export function DeckBuilderApp() {
     }
   }, [format, resolved, strategy]);
 
+  const refineDeck = useCallback(async () => {
+    if (!deckResult) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/refine-deck", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          format,
+          resolved,
+          deck: deckResult.deck,
+          errors: deckResult.validation.errors,
+          strategy,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Refine failed");
+
+      setDeckResult({
+        deck: data.deck,
+        enriched: data.enriched,
+        validation: data.validation,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Refine failed");
+    } finally {
+      setLoading(false);
+    }
+  }, [deckResult, format, resolved, strategy]);
+
   const downloadDeck = useCallback(() => {
     if (!deckResult) return;
     const { deck } = deckResult;
@@ -271,6 +303,16 @@ export function DeckBuilderApp() {
       {step === "deck" && deckResult && (
         <div className="space-y-6">
           <div className="flex flex-wrap gap-3">
+            {!deckResult.validation.valid && (
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => void refineDeck()}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-stone-50 transition hover:bg-red-500 disabled:opacity-50"
+              >
+                {loading ? "Fixing errors…" : "Fix errors with AI"}
+              </button>
+            )}
             <button
               type="button"
               onClick={downloadDeck}

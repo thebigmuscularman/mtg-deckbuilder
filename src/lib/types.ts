@@ -59,6 +59,7 @@ export interface DeckCardLine {
   name: string;
   quantity: number;
   scryfallId?: string;
+  reason?: string;
 }
 
 export interface BuiltDeck {
@@ -66,6 +67,7 @@ export interface BuiltDeck {
   description: string;
   format: FormatId;
   commander: string | null;
+  commanderReason?: string;
   mainboard: DeckCardLine[];
   sideboard: DeckCardLine[];
   strategy: string;
