@@ -2,6 +2,8 @@ import type { CollectionEntry } from "./types";
 
 const QUANTITY_FIRST = /^(\d+)\s*[xX]?\s+(.+)$/;
 const NAME_FIRST = /^(.+?)\s*[xX](\d+)$/;
+const MOXFIELD_LINE =
+  /^(\d+)\s+(.+?)\s+\(([A-Za-z0-9]{2,6})\)\s+(\S+?)(?:\s+\*F\*)?\s*$/;
 
 function parseQuantity(value: string): number {
   const n = parseInt(value.trim(), 10);
@@ -38,8 +40,18 @@ function splitCsvLine(line: string): string[] {
 }
 
 function parseLine(line: string): CollectionEntry | null {
-  const trimmed = line.trim();
+  const trimmed = line.trim().replace(/\s+\*F\*\s*$/, "");
   if (!trimmed || trimmed.startsWith("#")) return null;
+
+  const moxMatch = trimmed.match(MOXFIELD_LINE);
+  if (moxMatch) {
+    return {
+      quantity: parseQuantity(moxMatch[1]),
+      name: cleanName(moxMatch[2]),
+      set: moxMatch[3].toLowerCase(),
+      collectorNumber: moxMatch[4],
+    };
+  }
 
   const qtyMatch = trimmed.match(QUANTITY_FIRST);
   if (qtyMatch) {
