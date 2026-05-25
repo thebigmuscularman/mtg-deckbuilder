@@ -106,10 +106,10 @@ export function parseCollectionText(text: string): CollectionEntry[] {
 
 export function parseCollectionFile(content: string, filename: string): CollectionEntry[] {
   const lower = filename.toLowerCase();
-  if (lower.endsWith(".csv") || lower.endsWith(".txt") || lower.endsWith(".tsv")) {
+  if (lower.endsWith(".txt")) {
     return parseCollectionText(content);
   }
-  throw new Error("Unsupported file type. Upload a .csv or .txt file.");
+  throw new Error("Unsupported file type. Upload a .txt file.");
 }
 
 function mergeDuplicates(entries: CollectionEntry[]): CollectionEntry[] {

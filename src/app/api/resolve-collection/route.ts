@@ -20,12 +20,18 @@ export async function POST(request: Request) {
       const file = form.get("file");
       if (!file || !(file instanceof File)) {
         return NextResponse.json(
-          { error: "Upload a CSV or TXT file with your collection." },
+          { error: "Upload a .txt file with your collection." },
           { status: 400 },
         );
       }
       text = await file.text();
       filename = file.name;
+      if (!filename.toLowerCase().endsWith(".txt")) {
+        return NextResponse.json(
+          { error: "Only .txt files are supported." },
+          { status: 400 },
+        );
+      }
     } else {
       const body = await request.json();
       if (!body.text || typeof body.text !== "string") {
@@ -37,9 +43,7 @@ export async function POST(request: Request) {
       text = body.text;
     }
 
-    const entries = filename.endsWith(".csv") ||
-      filename.endsWith(".txt") ||
-      filename.endsWith(".tsv")
+    const entries = filename.toLowerCase().endsWith(".txt")
       ? parseCollectionFile(text, filename)
       : parseCollectionText(text);
 

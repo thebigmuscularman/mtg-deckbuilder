@@ -153,7 +153,7 @@ export function DeckBuilderApp() {
           <label className="cursor-pointer">
             <input
               type="file"
-              accept=".csv,.txt,.tsv"
+              accept=".txt,text/plain"
               className="hidden"
               disabled={loading}
               onChange={(e) => {
@@ -166,17 +166,24 @@ export function DeckBuilderApp() {
                 📜
               </span>
               <span className="text-lg font-medium text-amber-100">
-                {loading ? "Resolving on Scryfall…" : "Upload collection CSV"}
+                {loading ? "Resolving on Scryfall…" : "Upload collection .txt"}
               </span>
               <span className="max-w-md text-sm text-stone-400">
-                One card per line:{" "}
+                Plain text, one card per line:{" "}
                 <code className="rounded bg-stone-800 px-1.5 py-0.5 text-amber-300/90">
                   4 Lightning Bolt
-                </code>{" "}
-                or{" "}
-                <code className="rounded bg-stone-800 px-1.5 py-0.5 text-amber-300/90">
-                  name,quantity
                 </code>
+                <br />
+                Try{" "}
+                <a
+                  href="/sample-collection.txt"
+                  className="text-amber-400 underline hover:text-amber-300"
+                  download
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  the sample file
+                </a>
+                .
               </span>
             </span>
           </label>
