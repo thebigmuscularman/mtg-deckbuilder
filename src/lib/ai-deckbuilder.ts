@@ -1,12 +1,14 @@
 import OpenAI from "openai";
 import { z } from "zod";
 import { collectionToPromptList } from "./collection";
-import { formatRulesPrompt } from "./formats";
+import { formatRulesPrompt, getFormat, isBasicLand } from "./formats";
 import { validateDeck } from "./deck-validation";
 import type {
   BuiltDeck,
+  DeckCardLine,
   FormatId,
   ResolvedCollectionCard,
+  ScryfallCard,
 } from "./types";
 import { getDisplayName } from "./scryfall";
 
@@ -45,22 +47,151 @@ const deckSchema = z.object({
 });
 
 function buildCollectionContext(resolved: ResolvedCollectionCard[]): string {
-  const playable = resolved
-    .filter((r) => r.card)
-    .map((r) => ({
-      name: getDisplayName(r.card!),
-      quantity: r.entry.quantity,
-      typeLine: r.card!.type_line,
-      colors: r.card!.color_identity,
-    }));
+  const totals = new Map<string, { qty: number; card: ScryfallCard }>();
+  for (const r of resolved) {
+    if (!r.card) continue;
+    const name = getDisplayName(r.card);
+    const key = name.toLowerCase();
+    const existing = totals.get(key);
+    if (existing) {
+      existing.qty += r.entry.quantity;
+    } else {
+      totals.set(key, { qty: r.entry.quantity, card: r.card });
+    }
+  }
+
+  const playable = [...totals.values()].map(({ qty, card }) => ({
+    name: getDisplayName(card),
+    quantity: qty,
+    typeLine: card.type_line,
+    colors: card.color_identity,
+  }));
 
   return collectionToPromptList(playable);
+}
+
+function buildOwnedQuantities(
+  resolved: ResolvedCollectionCard[],
+): Map<string, { qty: number; card: ScryfallCard }> {
+  const totals = new Map<string, { qty: number; card: ScryfallCard }>();
+  for (const r of resolved) {
+    if (!r.card) continue;
+    const key = getDisplayName(r.card).toLowerCase();
+    const existing = totals.get(key);
+    if (existing) {
+      existing.qty += r.entry.quantity;
+    } else {
+      totals.set(key, { qty: r.entry.quantity, card: r.card });
+    }
+  }
+  return totals;
+}
+
+/**
+ * Hard guarantee: the deck shown to the user never references cards the user
+ * doesn't own or quantities they don't have. Drops unknowns and clamps to
+ * min(owned, format max). Returns a list of human-readable adjustments.
+ */
+function trimDeckToCollection(
+  deck: BuiltDeck,
+  resolved: ResolvedCollectionCard[],
+): { deck: BuiltDeck; adjustments: string[] } {
+  const formatRules = getFormat(deck.format);
+  const owned = buildOwnedQuantities(resolved);
+  const adjustments: string[] = [];
+
+  const clampLines = (lines: DeckCardLine[], zone: "mainboard" | "sideboard") => {
+    const merged = new Map<string, DeckCardLine>();
+    for (const line of lines) {
+      const key = line.name.trim().toLowerCase();
+      const existing = merged.get(key);
+      if (existing) {
+        existing.quantity += line.quantity;
+        if (!existing.reason && line.reason) existing.reason = line.reason;
+      } else {
+        merged.set(key, { ...line, name: line.name.trim() });
+      }
+    }
+
+    const out: DeckCardLine[] = [];
+    for (const line of merged.values()) {
+      const key = line.name.toLowerCase();
+      const ownedEntry = owned.get(key);
+
+      if (!ownedEntry) {
+        adjustments.push(`Dropped ${zone} card not in collection: ${line.name}`);
+        continue;
+      }
+
+      const display = getDisplayName(ownedEntry.card);
+      const formatMax = isBasicLand(display)
+        ? 99
+        : formatRules.maxCopies(ownedEntry.card);
+      const allowed = Math.min(ownedEntry.qty, formatMax);
+
+      if (allowed <= 0) {
+        adjustments.push(`Dropped ${display} (no copies available).`);
+        continue;
+      }
+
+      if (line.quantity > allowed) {
+        adjustments.push(
+          `Trimmed ${display} from ${line.quantity} to ${allowed} (owned ${ownedEntry.qty}, format max ${formatMax}).`,
+        );
+      }
+
+      out.push({
+        name: display,
+        quantity: Math.min(line.quantity, allowed),
+        reason: line.reason,
+        scryfallId: ownedEntry.card.id,
+      });
+    }
+
+    return out;
+  };
+
+  let commander = deck.commander;
+  let commanderReason = deck.commanderReason;
+  if (commander) {
+    const key = commander.trim().toLowerCase();
+    const ownedEntry = owned.get(key);
+    if (!ownedEntry) {
+      adjustments.push(
+        `Dropped commander not in collection: ${commander}. Choose a legendary creature you own.`,
+      );
+      commander = null;
+      commanderReason = undefined;
+    } else {
+      commander = getDisplayName(ownedEntry.card);
+    }
+  }
+
+  const trimmedMainboard = clampLines(deck.mainboard, "mainboard");
+  const trimmedSideboard = clampLines(deck.sideboard, "sideboard");
+
+  return {
+    deck: {
+      ...deck,
+      commander,
+      commanderReason,
+      mainboard: trimmedMainboard,
+      sideboard: trimmedSideboard,
+    },
+    adjustments,
+  };
 }
 
 function systemPrompt(format: FormatId): string {
   return `You are an expert Magic: The Gathering deck architect.
 
 You build COMPLETE, playable, competitive-leaning decks using ONLY cards from the user's collection list.
+
+ABSOLUTE RULES — violating any of these will cause the deck to be auto-trimmed and look bad to the user:
+- Use ONLY cards whose exact names appear in the collection list below.
+- The collection lists each card prefixed with "Nx" — that is the MAXIMUM number of copies of that card you may use across mainboard + sideboard + commander combined. Never exceed it.
+- If you need more of a card than the user owns, pick a DIFFERENT card from the collection instead of asking for more copies.
+- Never invent, hallucinate, or guess at cards. If a card you want isn't listed, don't include it.
 
 ${formatRulesPrompt(format)}
 
@@ -70,8 +201,6 @@ Design principles:
 - Include removal, card draw, or interaction where the format expects it
 - For Commander: pick the best commander from the collection for the available card pool; explain the synergy
 - For 60-card formats: target exactly 60 mainboard cards; sideboard 0-15 if useful
-- NEVER use a card not in the collection
-- NEVER exceed owned quantities
 - Use exact English card names as they appear on Scryfall
 
 For EVERY card you include (mainboard, sideboard, and commander) give a short "reason" (one sentence, 8-20 words) explaining why it earns its slot in THIS deck — its role, synergy, or matchup it answers. Be specific to the deck's plan, not generic.
@@ -160,11 +289,16 @@ async function runDeckGeneration(
     }
     parsedDeck = parsed.data;
 
-    const deck: BuiltDeck = {
+    const rawDeck: BuiltDeck = {
       ...parsed.data,
       format,
       warnings: parsed.data.warnings ?? [],
     };
+
+    const { deck, adjustments } = trimDeckToCollection(rawDeck, resolved);
+    if (adjustments.length) {
+      deck.warnings = [...deck.warnings, ...adjustments];
+    }
 
     const validation = validateDeck(deck, resolved);
     if (validation.valid) {
@@ -178,11 +312,13 @@ async function runDeckGeneration(
     throw new Error(`Deck generation failed: ${lastErrors.join("; ")}`);
   }
 
-  const deck: BuiltDeck = {
+  const rawDeck: BuiltDeck = {
     ...parsedDeck,
     format,
-    warnings: [...(parsedDeck.warnings ?? []), ...lastErrors],
+    warnings: parsedDeck.warnings ?? [],
   };
+  const { deck, adjustments } = trimDeckToCollection(rawDeck, resolved);
+  deck.warnings = [...deck.warnings, ...adjustments, ...lastErrors];
 
   return { deck, validationErrors: lastErrors };
 }

@@ -103,17 +103,9 @@ export function DeckDisplay({ deck, enriched, validation }: DeckDisplayProps) {
             Commander: <span className="font-semibold">{deck.commander}</span>
           </p>
         )}
-        {validation && (
-          <div
-            className={`rounded-lg px-4 py-2 text-sm ${
-              validation.valid
-                ? "bg-emerald-950/50 text-emerald-300 ring-1 ring-emerald-800/50"
-                : "bg-red-950/50 text-red-300 ring-1 ring-red-800/50"
-            }`}
-          >
-            {validation.valid
-              ? "Deck passes format & collection checks"
-              : `Issues: ${validation.errors.join("; ")}`}
+        {validation?.valid && (
+          <div className="rounded-lg bg-emerald-950/50 px-4 py-2 text-sm text-emerald-300 ring-1 ring-emerald-800/50">
+            Deck passes format & collection checks
           </div>
         )}
       </header>

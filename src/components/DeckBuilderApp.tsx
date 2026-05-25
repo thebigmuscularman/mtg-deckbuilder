@@ -302,17 +302,48 @@ export function DeckBuilderApp() {
 
       {step === "deck" && deckResult && (
         <div className="space-y-6">
+          {!deckResult.validation.valid && (
+            <div className="rounded-2xl border-2 border-red-500/60 bg-red-950/40 p-5 shadow-lg shadow-red-950/40 ring-1 ring-red-500/30">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-500/30 text-lg font-bold text-red-200">
+                    !
+                  </span>
+                  <div>
+                    <p className="font-semibold text-red-100">
+                      {deckResult.validation.errors.length} issue
+                      {deckResult.validation.errors.length === 1 ? "" : "s"} in
+                      this deck
+                    </p>
+                    <p className="text-sm text-red-200/80">
+                      The AI can fix these automatically while keeping the same
+                      game plan.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => void refineDeck()}
+                  className="shrink-0 rounded-lg bg-red-500 px-6 py-3 text-base font-semibold text-stone-50 shadow shadow-red-900/50 transition hover:bg-red-400 disabled:opacity-50 sm:text-lg"
+                >
+                  {loading ? "Fixing errors…" : "Fix errors with AI"}
+                </button>
+              </div>
+              <details className="mt-3 cursor-pointer text-xs text-red-200/70">
+                <summary className="hover:text-red-200">
+                  See the {deckResult.validation.errors.length} issue
+                  {deckResult.validation.errors.length === 1 ? "" : "s"}
+                </summary>
+                <ul className="mt-2 list-inside list-disc space-y-1 pl-2">
+                  {deckResult.validation.errors.map((e, i) => (
+                    <li key={`${i}-${e}`}>{e}</li>
+                  ))}
+                </ul>
+              </details>
+            </div>
+          )}
           <div className="flex flex-wrap gap-3">
-            {!deckResult.validation.valid && (
-              <button
-                type="button"
-                disabled={loading}
-                onClick={() => void refineDeck()}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-stone-50 transition hover:bg-red-500 disabled:opacity-50"
-              >
-                {loading ? "Fixing errors…" : "Fix errors with AI"}
-              </button>
-            )}
             <button
               type="button"
               onClick={downloadDeck}
