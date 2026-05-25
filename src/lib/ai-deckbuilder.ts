@@ -10,21 +10,38 @@ import type {
 } from "./types";
 import { getDisplayName } from "./scryfall";
 
+/** OpenAI often returns null for omitted optional fields; .optional() alone rejects that. */
+const aiRequiredString = z
+  .union([z.string(), z.null()])
+  .refine((v): v is string => typeof v === "string" && v.trim().length > 0, {
+    message: "expected non-empty string",
+  });
+
+const aiOptionalString = z
+  .union([z.string(), z.null()])
+  .optional()
+  .transform((v) => (v == null || v === "" ? undefined : v));
+
 const cardLineSchema = z.object({
-  name: z.string(),
+  name: aiRequiredString,
   quantity: z.number().int().positive(),
-  reason: z.string().optional(),
+  reason: aiOptionalString,
 });
 
 const deckSchema = z.object({
-  name: z.string(),
-  description: z.string(),
-  commander: z.string().nullable(),
-  commanderReason: z.string().optional(),
+  name: aiRequiredString,
+  description: aiRequiredString,
+  commander: z.union([z.string(), z.null()]),
+  commanderReason: aiOptionalString,
   mainboard: z.array(cardLineSchema),
   sideboard: z.array(cardLineSchema),
-  strategy: z.string(),
-  warnings: z.array(z.string()).optional(),
+  strategy: aiRequiredString,
+  warnings: z
+    .array(z.union([z.string(), z.null()]))
+    .optional()
+    .transform((arr) =>
+      arr?.filter((w): w is string => typeof w === "string" && w.length > 0),
+    ),
 });
 
 function buildCollectionContext(resolved: ResolvedCollectionCard[]): string {
@@ -136,7 +153,9 @@ async function runDeckGeneration(
 
     const parsed = deckSchema.safeParse(json);
     if (!parsed.success) {
-      lastErrors = parsed.error.issues.map((i) => i.message);
+      lastErrors = parsed.error.issues.map(
+        (i) => `${i.path.join(".") || "deck"}: ${i.message}`,
+      );
       continue;
     }
     parsedDeck = parsed.data;
