@@ -133,16 +133,22 @@ export function DeckDisplay({ deck, enriched, validation }: DeckDisplayProps) {
       <Section title="Main deck" lines={mainboard} />
       <Section title="Sideboard" lines={sideboard} />
 
-      {(deck.warnings.length > 0 || validation?.warnings.length) && (
-        <div className="rounded-lg border border-amber-800/30 bg-amber-950/20 p-4 text-sm text-amber-200/80">
-          <p className="mb-1 font-medium text-amber-400">Notes</p>
-          <ul className="list-inside list-disc space-y-1">
-            {[...deck.warnings, ...(validation?.warnings ?? [])].map((w) => (
-              <li key={w}>{w}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {(() => {
+        const notes = [
+          ...new Set([...deck.warnings, ...(validation?.warnings ?? [])]),
+        ];
+        if (!notes.length) return null;
+        return (
+          <div className="rounded-lg border border-amber-800/30 bg-amber-950/20 p-4 text-sm text-amber-200/80">
+            <p className="mb-1 font-medium text-amber-400">Notes</p>
+            <ul className="list-inside list-disc space-y-1">
+              {notes.map((w, i) => (
+                <li key={`${i}-${w}`}>{w}</li>
+              ))}
+            </ul>
+          </div>
+        );
+      })()}
     </div>
   );
 }
