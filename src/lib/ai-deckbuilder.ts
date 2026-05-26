@@ -1,7 +1,12 @@
 import OpenAI from "openai";
 import { z } from "zod";
 import { collectionToPromptList } from "./collection";
-import { formatRulesPrompt, getFormat, isBasicLand } from "./formats";
+import {
+  cardMeetsColorIdentity,
+  formatRulesPrompt,
+  getFormat,
+  isBasicLand,
+} from "./formats";
 import { validateDeck } from "./deck-validation";
 import type {
   BuiltDeck,
@@ -11,6 +16,21 @@ import type {
   ScryfallCard,
 } from "./types";
 import { getDisplayName } from "./scryfall";
+
+const COLOR_NAMES: Record<string, string> = {
+  W: "White",
+  U: "Blue",
+  B: "Black",
+  R: "Red",
+  G: "Green",
+};
+
+function formatColorIdentity(ci: string[]): string {
+  if (!ci.length) return "Colorless (C)";
+  const order = ["W", "U", "B", "R", "G"];
+  const sorted = [...ci].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  return `${sorted.join("")} (${sorted.map((c) => COLOR_NAMES[c] ?? c).join("/")})`;
+}
 
 /** OpenAI often returns null for omitted optional fields; .optional() alone rejects that. */
 const aiRequiredString = z
@@ -67,11 +87,13 @@ function buildCollectionContext(
   const playable = [...totals.values()].map(({ qty, card }) => {
     const name = getDisplayName(card);
     const formatMax = isBasicLand(name) ? 99 : formatRules.maxCopies(card);
+    const ci = card.color_identity ?? [];
+    const ciTag = ci.length ? ci.join("") : "C";
     return {
       name,
       quantity: Math.min(qty, formatMax),
       typeLine: card.type_line,
-      colors: card.color_identity,
+      colors: [ciTag],
     };
   });
 
@@ -161,6 +183,7 @@ function trimDeckToCollection(
 
   let commander = deck.commander;
   let commanderReason = deck.commanderReason;
+  let commanderCard: ScryfallCard | null = null;
   if (commander) {
     const key = commander.trim().toLowerCase();
     const ownedEntry = owned.get(key);
@@ -172,11 +195,37 @@ function trimDeckToCollection(
       commanderReason = undefined;
     } else {
       commander = getDisplayName(ownedEntry.card);
+      commanderCard = ownedEntry.card;
     }
   }
 
   let trimmedMainboard = clampLines(deck.mainboard, "mainboard");
   let trimmedSideboard = clampLines(deck.sideboard, "sideboard");
+
+  // Hard filter color identity violations for Commander.
+  if (deck.format === "commander" && commanderCard) {
+    const commanderColors = commanderCard.color_identity ?? [];
+    const filterByColor = (lines: DeckCardLine[], zone: string) => {
+      const kept: DeckCardLine[] = [];
+      for (const line of lines) {
+        const ownedEntry = owned.get(line.name.toLowerCase());
+        if (!ownedEntry) {
+          kept.push(line);
+          continue;
+        }
+        if (cardMeetsColorIdentity(ownedEntry.card, commanderColors)) {
+          kept.push(line);
+        } else {
+          adjustments.push(
+            `Dropped ${getDisplayName(ownedEntry.card)} from ${zone} — outside commander color identity ${formatColorIdentity(commanderColors)}.`,
+          );
+        }
+      }
+      return kept;
+    };
+    trimmedMainboard = filterByColor(trimmedMainboard, "mainboard");
+    trimmedSideboard = filterByColor(trimmedSideboard, "sideboard");
+  }
 
   const sumQty = (lines: DeckCardLine[]) =>
     lines.reduce((s, l) => s + l.quantity, 0);
@@ -336,7 +385,12 @@ function buildBaseUserMessage(
 
   const limitNote =
     format === "commander"
-      ? "Each non-basic card below shows as 1x — that is the SINGLETON limit for Commander. Use AT MOST 1 copy of each. Only basic lands may repeat."
+      ? `Each non-basic card below shows as 1x — that is the SINGLETON limit for Commander. Use AT MOST 1 copy of each. Only basic lands may repeat.
+
+Each card lists its color identity in brackets, e.g. (Creature [UB]) means the color identity is Blue+Black. Colorless cards show [C].
+
+STEP 1: Pick the commander first. Note its color identity letters (W/U/B/R/G).
+STEP 2: Every other card you include MUST have a color identity that is a SUBSET of the commander's letters. Example: if your commander is (Creature [GW]) Green+White, you may ONLY include cards whose bracket letters are some combination of G, W, or empty (C). A card with [U] or [R] or [GU] is ILLEGAL and will be removed.`
       : "Each card below shows the max copies you can use (capped at the format's 4-of rule). Never exceed those numbers.";
 
   let userMessage = `Build a ${format} deck from this collection.\n\n${limitNote}\n\nCOLLECTION:\n${collectionContext}`;
