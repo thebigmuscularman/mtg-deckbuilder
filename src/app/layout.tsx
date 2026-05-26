@@ -16,6 +16,7 @@ export const metadata: Metadata = {
   title: "MTG Deckbrewer — AI deck builder from your collection",
   description:
     "Upload your Magic: The Gathering collection and build Standard, Modern, or Commander decks with AI. Card data from Scryfall.",
+  themeColor: "#0a0807",
 };
 
 export default function RootLayout({

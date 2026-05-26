@@ -144,45 +144,75 @@ export function DeckBuilderApp() {
     URL.revokeObjectURL(url);
   }, [deckResult]);
 
+  const stepIndex = step === "upload" ? 0 : step === "review" ? 1 : 2;
+
   return (
-    <div className="mx-auto max-w-4xl px-4 py-10">
-      <header className="mb-10 text-center">
-        <p className="mb-2 text-sm font-medium uppercase tracking-[0.2em] text-amber-600">
-          Powered by Scryfall
-        </p>
-        <h1 className="text-4xl font-bold tracking-tight text-amber-50">
+    <div className="mx-auto max-w-4xl px-4 py-12">
+      <header className="mb-12 text-center">
+        <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-amber-700/30 bg-amber-950/30 px-4 py-1.5 text-xs font-medium uppercase tracking-[0.25em] text-amber-400/90 backdrop-blur">
+          <span className="mana-pip bg-amber-500/20 text-amber-300" style={{ width: "0.875rem", height: "0.875rem", fontSize: "0.6rem" }}>
+            ✦
+          </span>
+          Powered by Scryfall + AI
+        </div>
+        <h1 className="shimmer-text text-5xl font-black tracking-tight sm:text-6xl">
           MTG Deckbrewer
         </h1>
-        <p className="mt-3 text-stone-400">
-          Upload your collection. AI builds a legal, playable deck from cards you
-          actually own.
+        <p className="mx-auto mt-4 max-w-xl text-base text-stone-400 sm:text-lg">
+          Upload your collection. Watch AI conjure a legal, playable deck from
+          the cards you actually own.
         </p>
       </header>
 
-      <div className="mb-8 flex justify-center gap-2 text-sm">
-        {(["upload", "review", "deck"] as Step[]).map((s, i) => (
-          <span
-            key={s}
-            className={`rounded-full px-3 py-1 ${
-              step === s
-                ? "bg-amber-600/30 text-amber-200 ring-1 ring-amber-500/50"
-                : "text-stone-500"
-            }`}
-          >
-            {i + 1}. {s === "upload" ? "Collection" : s === "review" ? "Review" : "Deck"}
-          </span>
-        ))}
+      <div className="mb-10 flex items-center justify-center gap-3 sm:gap-5">
+        {(["upload", "review", "deck"] as Step[]).map((s, i) => {
+          const active = step === s;
+          const done = i < stepIndex;
+          const label = s === "upload" ? "Collection" : s === "review" ? "Brew" : "Deck";
+          return (
+            <div key={s} className="flex items-center gap-3 sm:gap-5">
+              <div className="flex items-center gap-2">
+                <span
+                  className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold transition-all ${
+                    active
+                      ? "bg-gradient-to-br from-amber-400 to-amber-600 text-stone-950 shadow-lg shadow-amber-500/40 ring-2 ring-amber-300/40"
+                      : done
+                      ? "bg-amber-900/50 text-amber-300 ring-1 ring-amber-700/40"
+                      : "bg-stone-900 text-stone-600 ring-1 ring-stone-800"
+                  }`}
+                >
+                  {done ? "✓" : i + 1}
+                </span>
+                <span
+                  className={`hidden text-sm font-medium sm:inline ${
+                    active ? "text-amber-200" : done ? "text-stone-400" : "text-stone-600"
+                  }`}
+                >
+                  {label}
+                </span>
+              </div>
+              {i < 2 && (
+                <span
+                  className={`h-px w-8 sm:w-16 ${
+                    done ? "bg-gradient-to-r from-amber-600 to-amber-700/30" : "bg-stone-800"
+                  }`}
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {error && (
-        <div className="mb-6 rounded-lg bg-red-950/60 px-4 py-3 text-sm text-red-200 ring-1 ring-red-800/50">
+        <div className="fade-in-up mb-6 rounded-xl border border-red-700/40 bg-red-950/50 px-4 py-3 text-sm text-red-200 backdrop-blur">
           {error}
         </div>
       )}
 
       {step === "upload" && (
-        <div className="rounded-2xl border border-dashed border-amber-800/40 bg-stone-900/50 p-10 text-center">
-          <label className="cursor-pointer">
+        <div className="fade-in-up glass-panel relative overflow-hidden rounded-3xl p-10 text-center sm:p-14">
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-amber-500/5 via-transparent to-purple-500/5" />
+          <label className="relative block cursor-pointer">
             <input
               type="file"
               accept=".txt,text/plain"
@@ -193,29 +223,41 @@ export function DeckBuilderApp() {
                 if (f) void handleFile(f);
               }}
             />
-            <span className="inline-flex flex-col items-center gap-4">
-              <span className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-600/20 text-3xl ring-2 ring-amber-500/30">
-                📜
+            <span className="inline-flex flex-col items-center gap-5">
+              <span
+                className={`relative flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-amber-500/30 to-amber-700/10 text-4xl ring-2 ring-amber-500/40 ${
+                  loading ? "" : "glow-button"
+                }`}
+              >
+                <span className={loading ? "" : "animate-pulse"}>
+                  {loading ? "✦" : "📜"}
+                </span>
+                {loading && (
+                  <span
+                    className="absolute inset-0 rounded-full border-2 border-amber-400/60 border-t-transparent"
+                    style={{ animation: "spinSlow 1.2s linear infinite" }}
+                  />
+                )}
               </span>
-              <span className="text-lg font-medium text-amber-100">
-                {loading ? "Resolving on Scryfall…" : "Upload collection .txt"}
+              <span className="text-xl font-semibold text-amber-50">
+                {loading ? "Consulting Scryfall…" : "Upload your collection (.txt)"}
               </span>
-              <span className="max-w-md text-sm text-stone-400">
+              <span className="max-w-md text-sm leading-relaxed text-stone-400">
                 Plain text, one card per line:{" "}
-                <code className="rounded bg-stone-800 px-1.5 py-0.5 text-amber-300/90">
+                <code className="rounded bg-stone-800/80 px-2 py-0.5 text-amber-300/90 ring-1 ring-amber-900/40">
                   4 Lightning Bolt
                 </code>
                 <br />
-                Try{" "}
+                Or grab{" "}
                 <a
                   href="/sample-collection.txt"
-                  className="text-amber-400 underline hover:text-amber-300"
+                  className="font-medium text-amber-400 underline decoration-amber-700/60 underline-offset-4 hover:text-amber-300 hover:decoration-amber-500"
                   download
                   onClick={(e) => e.stopPropagation()}
                 >
-                  the sample file
-                </a>
-                .
+                  a sample file
+                </a>{" "}
+                to try it.
               </span>
             </span>
           </label>
@@ -223,7 +265,7 @@ export function DeckBuilderApp() {
       )}
 
       {step === "review" && summary && (
-        <div className="space-y-6">
+        <div className="fade-in-up space-y-6">
           <div className="grid gap-4 sm:grid-cols-3">
             <Stat label="Lines" value={summary.total} />
             <Stat label="Unique cards" value={summary.unique} />
@@ -235,65 +277,76 @@ export function DeckBuilderApp() {
           </div>
 
           {summary.unresolved > 0 && (
-            <div className="max-h-40 overflow-y-auto rounded-lg bg-stone-900/60 p-4 text-sm text-stone-400">
-              {resolved
-                .filter((r) => !r.card)
-                .map((r) => (
-                  <p key={r.entry.name}>
-                    ? {r.entry.quantity}x {r.entry.name}
-                  </p>
-                ))}
-            </div>
+            <details className="glass-panel overflow-hidden rounded-2xl text-sm">
+              <summary className="cursor-pointer px-5 py-3 font-medium text-amber-300/90 hover:text-amber-200">
+                {summary.unresolved} card{summary.unresolved === 1 ? "" : "s"} couldn’t be found on Scryfall
+              </summary>
+              <div className="max-h-48 overflow-y-auto border-t border-stone-800 bg-stone-950/60 p-4 text-stone-400">
+                {resolved
+                  .filter((r) => !r.card)
+                  .map((r) => (
+                    <p key={r.entry.name} className="font-mono text-xs">
+                      ? {r.entry.quantity}x {r.entry.name}
+                    </p>
+                  ))}
+              </div>
+            </details>
           )}
 
-          <div className="rounded-xl bg-stone-900/60 p-6 ring-1 ring-amber-900/30">
-            <label className="mb-2 block text-sm font-medium text-amber-400">
+          <div className="glass-panel rounded-2xl p-6 sm:p-8">
+            <label className="mb-3 block text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
               Format
             </label>
-            <div className="mb-6 flex flex-wrap gap-2">
+            <div className="mb-2 flex flex-wrap gap-2">
               {(Object.keys(FORMATS) as FormatId[]).map((id) => (
                 <button
                   key={id}
                   type="button"
                   onClick={() => setFormat(id)}
-                  className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                  className={`card-hover rounded-xl px-5 py-2.5 text-sm font-semibold transition ${
                     format === id
-                      ? "bg-amber-600 text-stone-950"
-                      : "bg-stone-800 text-stone-300 hover:bg-stone-700"
+                      ? "bg-gradient-to-br from-amber-400 to-amber-600 text-stone-950 shadow-lg shadow-amber-700/40 ring-1 ring-amber-300/40"
+                      : "bg-stone-800/80 text-stone-300 ring-1 ring-stone-700/60 hover:bg-stone-700/80 hover:text-amber-100"
                   }`}
                 >
                   {FORMATS[id].label}
                 </button>
               ))}
             </div>
-            <p className="mb-4 text-xs text-stone-500">{FORMATS[format].description}</p>
+            <p className="mb-6 text-xs italic text-stone-500">
+              {FORMATS[format].description}
+            </p>
 
-            <label className="mb-2 block text-sm font-medium text-amber-400">
-              Strategy (optional)
+            <label className="mb-3 block text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
+              Strategy <span className="text-stone-600">(optional)</span>
             </label>
             <input
               type="text"
               value={strategy}
               onChange={(e) => setStrategy(e.target.value)}
               placeholder="e.g. aggro red, esper control, tokens…"
-              className="mb-6 w-full rounded-lg border border-stone-700 bg-stone-950 px-4 py-2 text-stone-100 placeholder:text-stone-600 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
+              className="mb-7 w-full rounded-xl border border-stone-700/60 bg-stone-950/60 px-4 py-3 text-stone-100 placeholder:text-stone-600 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-600/40"
             />
 
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 disabled={loading || summary.unique < 10}
                 onClick={() => void buildDeck()}
-                className="rounded-lg bg-amber-600 px-6 py-2.5 font-semibold text-stone-950 transition hover:bg-amber-500 disabled:opacity-50"
+                className={`group relative inline-flex items-center gap-2 overflow-hidden rounded-xl bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 px-7 py-3 font-bold text-stone-950 shadow-xl shadow-amber-700/40 transition hover:from-amber-300 hover:to-amber-500 disabled:cursor-not-allowed disabled:opacity-50 ${
+                  loading ? "" : "glow-button"
+                }`}
               >
+                <span className="text-lg">{loading ? "✦" : "⚡"}</span>
                 {loading ? "Brewing deck…" : "Build my deck"}
+                <span className="absolute inset-0 -z-10 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 transition group-hover:opacity-100 group-hover:[transform:translateX(100%)]" />
               </button>
               <button
                 type="button"
                 onClick={() => setStep("upload")}
-                className="rounded-lg px-4 py-2.5 text-stone-400 hover:text-stone-200"
+                className="rounded-xl px-4 py-2.5 text-sm text-stone-400 transition hover:text-amber-300"
               >
-                Upload different file
+                ← Upload different file
               </button>
             </div>
           </div>
@@ -301,16 +354,17 @@ export function DeckBuilderApp() {
       )}
 
       {step === "deck" && deckResult && (
-        <div className="space-y-6">
+        <div className="fade-in-up space-y-6">
           {!deckResult.validation.valid && (
-            <div className="rounded-2xl border-2 border-red-500/60 bg-red-950/40 p-5 shadow-lg shadow-red-950/40 ring-1 ring-red-500/30">
+            <div className="relative overflow-hidden rounded-2xl border border-red-500/50 bg-gradient-to-br from-red-950/70 via-red-950/50 to-stone-950/70 p-6 shadow-2xl shadow-red-950/40 backdrop-blur">
+              <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-red-400/60 to-transparent" />
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-start gap-3">
-                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-500/30 text-lg font-bold text-red-200">
-                    !
+                  <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-500/30 text-xl font-bold text-red-200 ring-2 ring-red-400/40">
+                    ⚠
                   </span>
                   <div>
-                    <p className="font-semibold text-red-100">
+                    <p className="text-lg font-bold text-red-50">
                       {deckResult.validation.errors.length} issue
                       {deckResult.validation.errors.length === 1 ? "" : "s"} in
                       this deck
@@ -325,13 +379,14 @@ export function DeckBuilderApp() {
                   type="button"
                   disabled={loading}
                   onClick={() => void refineDeck()}
-                  className="shrink-0 rounded-lg bg-red-500 px-6 py-3 text-base font-semibold text-stone-50 shadow shadow-red-900/50 transition hover:bg-red-400 disabled:opacity-50 sm:text-lg"
+                  className="group relative shrink-0 overflow-hidden rounded-xl bg-gradient-to-br from-red-500 to-red-600 px-6 py-3.5 text-base font-bold text-white shadow-xl shadow-red-900/60 transition hover:from-red-400 hover:to-red-500 disabled:opacity-50 sm:text-lg"
                 >
-                  {loading ? "Fixing errors…" : "Fix errors with AI"}
+                  <span className="mr-1">{loading ? "✦" : "🪄"}</span>
+                  {loading ? "Fixing…" : "Fix errors with AI"}
                 </button>
               </div>
-              <details className="mt-3 cursor-pointer text-xs text-red-200/70">
-                <summary className="hover:text-red-200">
+              <details className="mt-4 cursor-pointer text-xs text-red-200/70">
+                <summary className="font-medium hover:text-red-200">
                   See the {deckResult.validation.errors.length} issue
                   {deckResult.validation.errors.length === 1 ? "" : "s"}
                 </summary>
@@ -347,9 +402,9 @@ export function DeckBuilderApp() {
             <button
               type="button"
               onClick={downloadDeck}
-              className="rounded-lg bg-amber-600/20 px-4 py-2 text-sm font-medium text-amber-200 ring-1 ring-amber-600/40 hover:bg-amber-600/30"
+              className="card-hover inline-flex items-center gap-2 rounded-xl bg-gradient-to-br from-amber-500/20 to-amber-700/10 px-5 py-2.5 text-sm font-semibold text-amber-200 ring-1 ring-amber-600/40 hover:from-amber-500/30 hover:to-amber-700/20"
             >
-              Download decklist
+              <span>⬇</span> Download decklist
             </button>
             <button
               type="button"
@@ -357,9 +412,9 @@ export function DeckBuilderApp() {
                 setStep("review");
                 setDeckResult(null);
               }}
-              className="rounded-lg px-4 py-2 text-sm text-stone-400 hover:text-stone-200"
+              className="rounded-xl px-4 py-2.5 text-sm text-stone-400 hover:text-amber-300"
             >
-              Brew another
+              ↻ Brew another
             </button>
           </div>
           <DeckDisplay
@@ -370,7 +425,7 @@ export function DeckBuilderApp() {
         </div>
       )}
 
-      <footer className="mt-16 text-center text-xs text-stone-600">
+      <footer className="mt-20 border-t border-stone-800/60 pt-8 text-center text-xs text-stone-600">
         Card data from{" "}
         <a
           href="https://scryfall.com"
@@ -397,15 +452,24 @@ function Stat({
 }) {
   return (
     <div
-      className={`rounded-xl p-4 ring-1 ${
+      className={`card-hover relative overflow-hidden rounded-2xl p-5 ring-1 ${
         warn
-          ? "bg-amber-950/30 ring-amber-800/40"
-          : "bg-stone-900/60 ring-stone-800/50"
+          ? "bg-gradient-to-br from-amber-950/50 to-stone-950/80 ring-amber-700/40"
+          : "bg-gradient-to-br from-stone-900/80 to-stone-950/80 ring-stone-800/60"
       }`}
     >
-      <p className="text-xs uppercase tracking-wider text-stone-500">{label}</p>
+      <div
+        className={`pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full blur-2xl ${
+          warn ? "bg-amber-500/20" : "bg-amber-500/5"
+        }`}
+      />
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+        {label}
+      </p>
       <p
-        className={`text-2xl font-bold ${warn ? "text-amber-400" : "text-amber-100"}`}
+        className={`mt-1 text-3xl font-black tabular-nums ${
+          warn ? "text-amber-300" : "text-amber-100"
+        }`}
       >
         {value}
       </p>
