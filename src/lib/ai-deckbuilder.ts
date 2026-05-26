@@ -46,7 +46,10 @@ const deckSchema = z.object({
     ),
 });
 
-function buildCollectionContext(resolved: ResolvedCollectionCard[]): string {
+function buildCollectionContext(
+  resolved: ResolvedCollectionCard[],
+  format: FormatId,
+): string {
   const totals = new Map<string, { qty: number; card: ScryfallCard }>();
   for (const r of resolved) {
     if (!r.card) continue;
@@ -60,12 +63,17 @@ function buildCollectionContext(resolved: ResolvedCollectionCard[]): string {
     }
   }
 
-  const playable = [...totals.values()].map(({ qty, card }) => ({
-    name: getDisplayName(card),
-    quantity: qty,
-    typeLine: card.type_line,
-    colors: card.color_identity,
-  }));
+  const formatRules = getFormat(format);
+  const playable = [...totals.values()].map(({ qty, card }) => {
+    const name = getDisplayName(card);
+    const formatMax = isBasicLand(name) ? 99 : formatRules.maxCopies(card);
+    return {
+      name,
+      quantity: Math.min(qty, formatMax),
+      typeLine: card.type_line,
+      colors: card.color_identity,
+    };
+  });
 
   return collectionToPromptList(playable);
 }
@@ -276,6 +284,11 @@ function trimDeckToCollection(
 }
 
 function systemPrompt(format: FormatId): string {
+  const singletonReminder =
+    format === "commander"
+      ? `\n- COMMANDER SINGLETON: Every non-basic card may appear AT MOST 1 time in the entire deck. The collection list shows each non-basic as "1x" for this reason. Do NOT use 2x, 3x, or 4x of any non-basic card. The ONLY cards you may repeat are basic lands (Plains, Island, Swamp, Mountain, Forest, Wastes).`
+      : "";
+
   return `You are an expert Magic: The Gathering deck architect.
 
 You build COMPLETE, playable, competitive-leaning decks using ONLY cards from the user's collection list.
@@ -286,7 +299,7 @@ ABSOLUTE RULES — violating any of these will cause the deck to be auto-trimmed
 - If you need more of a card than the user owns, pick a DIFFERENT card from the collection instead of asking for more copies.
 - Never invent, hallucinate, or guess at cards. If a card you want isn't listed, don't include it.
 - The sum of all mainboard quantities MUST equal the exact mainboard size for the format. Count carefully before responding. Do not overshoot or undershoot by even one card.
-- For Commander, the mainboard is EXACTLY 99 cards (the commander is separate). For Standard/Modern, the mainboard is EXACTLY 60 cards.
+- For Commander, the mainboard is EXACTLY 99 cards (the commander is separate). For Standard/Modern, the mainboard is EXACTLY 60 cards.${singletonReminder}
 
 ${formatRulesPrompt(format)}
 
@@ -318,10 +331,15 @@ function buildBaseUserMessage(
   resolved: ResolvedCollectionCard[],
   strategyHint?: string,
 ): string {
-  const collectionContext = buildCollectionContext(resolved);
+  const collectionContext = buildCollectionContext(resolved, format);
   const unresolved = resolved.filter((r) => !r.card).map((r) => r.entry.name);
 
-  let userMessage = `Build a ${format} deck from this collection:\n\n${collectionContext}`;
+  const limitNote =
+    format === "commander"
+      ? "Each non-basic card below shows as 1x — that is the SINGLETON limit for Commander. Use AT MOST 1 copy of each. Only basic lands may repeat."
+      : "Each card below shows the max copies you can use (capped at the format's 4-of rule). Never exceed those numbers.";
+
+  let userMessage = `Build a ${format} deck from this collection.\n\n${limitNote}\n\nCOLLECTION:\n${collectionContext}`;
   if (strategyHint?.trim()) {
     userMessage += `\n\nUser preference: ${strategyHint.trim()}`;
   }
