@@ -167,8 +167,101 @@ function trimDeckToCollection(
     }
   }
 
-  const trimmedMainboard = clampLines(deck.mainboard, "mainboard");
-  const trimmedSideboard = clampLines(deck.sideboard, "sideboard");
+  let trimmedMainboard = clampLines(deck.mainboard, "mainboard");
+  let trimmedSideboard = clampLines(deck.sideboard, "sideboard");
+
+  const sumQty = (lines: DeckCardLine[]) =>
+    lines.reduce((s, l) => s + l.quantity, 0);
+
+  const targetMain =
+    deck.format === "commander" ? 99 : formatRules.minMainboard;
+  const maxSide = formatRules.maxSideboard;
+
+  // Mainboard: chop excess copies (prefer trimming highest-count non-basic slots first).
+  let mainCount = sumQty(trimmedMainboard);
+  if (mainCount > targetMain) {
+    const sorted = [...trimmedMainboard]
+      .map((line, idx) => ({ line, idx }))
+      .sort((a, b) => {
+        const ba = isBasicLand(a.line.name);
+        const bb = isBasicLand(b.line.name);
+        if (ba !== bb) return ba ? 1 : -1;
+        return b.line.quantity - a.line.quantity;
+      });
+    let excess = mainCount - targetMain;
+    for (const { idx } of sorted) {
+      if (excess <= 0) break;
+      const take = Math.min(excess, trimmedMainboard[idx].quantity);
+      trimmedMainboard[idx].quantity -= take;
+      excess -= take;
+    }
+    trimmedMainboard = trimmedMainboard.filter((l) => l.quantity > 0);
+    adjustments.push(
+      `Mainboard had too many cards; removed ${mainCount - targetMain} copies to reach ${targetMain}.`,
+    );
+    mainCount = sumQty(trimmedMainboard);
+  }
+
+  // Mainboard: backfill with available basics if undersized.
+  if (mainCount < targetMain) {
+    const need = targetMain - mainCount;
+    const basics = [...owned.values()]
+      .filter(({ card }) => isBasicLand(getDisplayName(card)))
+      .sort((a, b) => b.qty - a.qty);
+    let remaining = need;
+    for (const basic of basics) {
+      if (remaining <= 0) break;
+      const display = getDisplayName(basic.card);
+      const existing = trimmedMainboard.find(
+        (l) => l.name.toLowerCase() === display.toLowerCase(),
+      );
+      const used = existing?.quantity ?? 0;
+      const headroom = basic.qty - used;
+      if (headroom <= 0) continue;
+      const add = Math.min(headroom, remaining);
+      if (existing) {
+        existing.quantity += add;
+      } else {
+        trimmedMainboard.push({
+          name: display,
+          quantity: add,
+          reason: "Mana fixer added to meet the deck size requirement.",
+          scryfallId: basic.card.id,
+        });
+      }
+      remaining -= add;
+    }
+    if (remaining > 0) {
+      adjustments.push(
+        `Mainboard is ${remaining} card${remaining === 1 ? "" : "s"} short of ${targetMain}; not enough owned lands to fill.`,
+      );
+    } else if (need > 0) {
+      adjustments.push(
+        `Mainboard was ${need} card${need === 1 ? "" : "s"} short; filled with owned basic lands.`,
+      );
+    }
+  }
+
+  // Sideboard: enforce max.
+  if (deck.format === "commander") {
+    if (trimmedSideboard.length) {
+      adjustments.push("Commander format has no sideboard; removed sideboard cards.");
+    }
+    trimmedSideboard = [];
+  } else if (sumQty(trimmedSideboard) > maxSide) {
+    const sortedSb = [...trimmedSideboard]
+      .map((line, idx) => ({ line, idx }))
+      .sort((a, b) => b.line.quantity - a.line.quantity);
+    let excessSb = sumQty(trimmedSideboard) - maxSide;
+    for (const { idx } of sortedSb) {
+      if (excessSb <= 0) break;
+      const take = Math.min(excessSb, trimmedSideboard[idx].quantity);
+      trimmedSideboard[idx].quantity -= take;
+      excessSb -= take;
+    }
+    trimmedSideboard = trimmedSideboard.filter((l) => l.quantity > 0);
+    adjustments.push(`Sideboard trimmed to the ${maxSide}-card max.`);
+  }
 
   return {
     deck: {
@@ -192,6 +285,8 @@ ABSOLUTE RULES — violating any of these will cause the deck to be auto-trimmed
 - The collection lists each card prefixed with "Nx" — that is the MAXIMUM number of copies of that card you may use across mainboard + sideboard + commander combined. Never exceed it.
 - If you need more of a card than the user owns, pick a DIFFERENT card from the collection instead of asking for more copies.
 - Never invent, hallucinate, or guess at cards. If a card you want isn't listed, don't include it.
+- The sum of all mainboard quantities MUST equal the exact mainboard size for the format. Count carefully before responding. Do not overshoot or undershoot by even one card.
+- For Commander, the mainboard is EXACTLY 99 cards (the commander is separate). For Standard/Modern, the mainboard is EXACTLY 60 cards.
 
 ${formatRulesPrompt(format)}
 
@@ -333,7 +428,7 @@ export async function buildDeckWithAI(
     { role: "system", content: systemPrompt(format) },
     { role: "user", content: userMessage },
   ];
-  return runDeckGeneration(format, resolved, baseMessages, 2);
+  return runDeckGeneration(format, resolved, baseMessages, 3);
 }
 
 export async function refineDeckWithAI(
@@ -372,5 +467,5 @@ export async function refineDeckWithAI(
     },
   ];
 
-  return runDeckGeneration(format, resolved, baseMessages, 3);
+  return runDeckGeneration(format, resolved, baseMessages, 4);
 }
