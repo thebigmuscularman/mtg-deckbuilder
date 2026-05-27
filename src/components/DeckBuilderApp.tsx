@@ -388,6 +388,42 @@ export function DeckBuilderApp() {
     }
   }, [activeResult, activeTab, buildPayload]);
 
+  const shoreUpDeck = useCallback(async () => {
+    if (!activeResult) return;
+    const weaknesses = activeResult.deck.weaknesses?.filter(
+      (w) => w.trim().length > 0,
+    );
+    if (!weaknesses?.length) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/shore-up-deck", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...buildPayload(),
+          deck: activeResult.deck,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Shore-up failed");
+      const updated: DeckResult = {
+        deck: data.deck,
+        enriched: data.enriched,
+        validation: data.validation,
+      };
+      setDeckTabs((tabs) =>
+        tabs.map((t, i) => (i === activeTab ? { ...t, result: updated } : t)),
+      );
+      pushDeckHistory(data.deck);
+      setDeckHistory(loadDeckHistory());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Shore-up failed");
+    } finally {
+      setLoading(false);
+    }
+  }, [activeResult, activeTab, buildPayload]);
+
   const swapCard = useCallback(
     async (cardName: string, zone: "mainboard" | "sideboard" | "commander") => {
       if (!activeResult) return;
@@ -887,6 +923,45 @@ export function DeckBuilderApp() {
                   {activeResult.validation.errors.map((e, i) => (
                     <li key={`${i}-${e}`}>{e}</li>
                   ))}
+                </ul>
+              </details>
+            </div>
+          )}
+
+          {activeResult.deck.weaknesses?.some((w) => w.trim().length > 0) && (
+            <div className="relative overflow-hidden rounded-2xl border border-rose-500/40 bg-gradient-to-br from-rose-950/50 to-stone-950/70 p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-lg font-bold text-rose-50">
+                    {activeResult.deck.weaknesses!.filter((w) => w.trim()).length}{" "}
+                    weakness
+                    {activeResult.deck.weaknesses!.filter((w) => w.trim()).length === 1
+                      ? ""
+                      : "es"}{" "}
+                    to address
+                  </p>
+                  <p className="text-sm text-rose-200/80">
+                    AI can swap in cards from your collection to shore up these
+                    gaps while keeping the core plan.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => void shoreUpDeck()}
+                  className="rounded-xl bg-rose-600 px-6 py-3 font-bold text-white disabled:opacity-50"
+                >
+                  {loading ? "Adjusting…" : "Shore up weaknesses"}
+                </button>
+              </div>
+              <details className="mt-4 text-xs text-rose-200/70">
+                <summary className="cursor-pointer">See weaknesses</summary>
+                <ul className="mt-2 list-disc pl-4">
+                  {activeResult.deck.weaknesses!
+                    .filter((w) => w.trim())
+                    .map((w, i) => (
+                      <li key={`${i}-${w}`}>{w}</li>
+                    ))}
                 </ul>
               </details>
             </div>

@@ -899,6 +899,78 @@ export async function buildDeckWithAI(
   );
 }
 
+export async function shoreUpDeckWithAI(
+  format: FormatId,
+  resolved: ResolvedCollectionCard[],
+  previousDeck: BuiltDeck,
+  weaknesses: string[],
+  strategyHint?: string,
+  colorPref?: string[],
+  maxBudgetUsd?: number,
+  onProgress?: (event: DeckBuildProgress) => void,
+): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
+  const userMessage = buildBaseUserMessage(
+    format,
+    resolved,
+    strategyHint,
+    colorPref,
+    maxBudgetUsd,
+  );
+  const previousJson = JSON.stringify(
+    {
+      name: previousDeck.name,
+      description: previousDeck.description,
+      archetype: previousDeck.archetype,
+      overview: previousDeck.overview,
+      winConditions: previousDeck.winConditions,
+      strengths: previousDeck.strengths,
+      weaknesses: previousDeck.weaknesses,
+      commander: previousDeck.commander,
+      commanderReason: previousDeck.commanderReason,
+      mainboard: previousDeck.mainboard,
+      sideboard: previousDeck.sideboard,
+      strategy: previousDeck.strategy,
+    },
+    null,
+    2,
+  );
+
+  const weaknessList = weaknesses
+    .map((w, i) => `${i + 1}. ${w}`)
+    .join("\n");
+
+  const baseMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt(format) },
+    { role: "user", content: userMessage },
+    { role: "assistant", content: previousJson },
+    {
+      role: "user",
+      content: `The deck above has these self-identified WEAKNESSES:
+${weaknessList}
+
+Revise the deck to SHORE UP each weakness using cards from the collection — swap in answers, hate pieces, alternative win conditions, or curve adjustments that mitigate the specific vulnerabilities listed.
+
+Hard constraints:
+- This is a strategic upgrade, NOT a rebuild. Keep the commander, archetype, game plan, and the bulk of the mainboard intact.
+- Swap out the LOWEST-impact cards (filler creatures, redundant utility, overlapping effects) for targeted answers to each weakness. Aim to change 4-10 slots in a 60-card deck, 6-12 in a Commander deck.
+- Every replacement must come from the collection list and obey the same format / quantity / color-identity rules as before.
+- Update the "weaknesses" array in your response to reflect the new (smaller) list of vulnerabilities after your changes — if a weakness is fully addressed, remove it; otherwise rewrite it to reflect what's left.
+- Update "strengths" if your changes meaningfully reinforce them.
+- Return the FULL deck JSON, not a diff.`,
+    },
+  ];
+
+  return runDeckGeneration(
+    format,
+    resolved,
+    baseMessages,
+    3,
+    colorPref,
+    maxBudgetUsd,
+    onProgress,
+  );
+}
+
 export async function refineDeckWithAI(
   format: FormatId,
   resolved: ResolvedCollectionCard[],
