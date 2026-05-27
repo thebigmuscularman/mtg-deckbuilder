@@ -294,6 +294,53 @@ describe("trimDeckToCollection", () => {
     expect(adjustments.some((a) => /24-land target/.test(a))).toBe(true);
   });
 
+  it("clamps lands down even when AI ships mostly non-basic lands", () => {
+    const spellCards = Array.from({ length: 12 }, (_, i) =>
+      mockCard({ name: `Spell ${i}`, color_identity: ["R"] }),
+    );
+    const dualCards = Array.from({ length: 10 }, (_, i) =>
+      mockCard({
+        name: `Fancy Land ${i}`,
+        type_line: "Land",
+        color_identity: ["R"],
+      }),
+    );
+    const coll = [
+      ...spellCards.map((c) => resolved({ name: c.name, quantity: 4 }, c)),
+      ...dualCards.map((c) => resolved({ name: c.name, quantity: 4 }, c)),
+      resolved({ name: "Mountain", quantity: 60 }, mountain),
+    ];
+    const deck: BuiltDeck = {
+      name: "Land-heavy duals",
+      description: "d",
+      format: "modern",
+      commander: null,
+      mainboard: [
+        ...spellCards.map((c) => ({ name: c.name, quantity: 2 })),
+        // 30 non-basics + 6 basics = 36 lands, way over target.
+        ...dualCards.map((c) => ({ name: c.name, quantity: 3 })),
+        { name: "Mountain", quantity: 6 },
+      ],
+      sideboard: [],
+      strategy: "s",
+      warnings: [],
+    };
+    const { deck: trimmed } = trimDeckToCollection(
+      deck,
+      coll,
+      undefined,
+      undefined,
+      { landsTarget: 24 },
+    );
+    const lands = trimmed.mainboard
+      .filter(
+        (l) =>
+          l.name === "Mountain" || l.name.startsWith("Fancy Land "),
+      )
+      .reduce((s, l) => s + l.quantity, 0);
+    expect(lands).toBe(24);
+  });
+
   it("drops cards over budget cap", () => {
     const expensive = mockCard({
       name: "Expensive Rock",

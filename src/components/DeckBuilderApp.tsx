@@ -310,20 +310,31 @@ export function DeckBuilderApp() {
       est.label,
       prefs.powerLevel,
     );
-    const next = suggestPowerLevelAdjustment(comparison.status, prefs.powerLevel);
+    const next = suggestPowerLevelAdjustment(
+      comparison.status,
+      prefs.powerLevel,
+    );
     if (!next) return;
     prefs.setPowerLevel(next);
-    await api.stream(
-      "/api/build-deck-stream",
-      {
-        ...payload(),
-        powerLevel: next,
-        strategy:
-          prefs.strategy.trim() ||
-          `Rebuild this deck to better match ${POWER_LEVELS[next].label} power (${comparison.status === "high" ? "tone down" : "more punch"}).`,
-      },
-      (result) => applyDeckResult("Power-adjusted", result),
-    );
+    // Route through shore-up so the AI keeps the existing commander/archetype
+    // and only swaps cards to retune the deck — a fresh rebuild gets
+    // confused by the user's other prefs (landsTarget, mustInclude) and
+    // tends to ship a structurally similar but reshuffled list rather than
+    // genuinely buffing the picks.
+    const landsInstruction = prefs.landsTarget > 0
+      ? `Keep the mainboard at EXACTLY ${prefs.landsTarget} lands (basic + non-basic combined) — the user has explicitly set that target.`
+      : `Keep the land base roughly the same size unless it's clearly broken.`;
+    const direction =
+      comparison.status === "high"
+        ? `Deck reads too strong for ${POWER_LEVELS[next].label} target — swap the most-tuned cards (fast mana, free interaction, tutors, combo pieces) for fair alternatives from the collection. ${landsInstruction} Focus changes on SPELL slots, not land count.`
+        : `Deck reads weaker than the ${POWER_LEVELS[next].label} target — swap filler / vanilla cards for the most efficient, powerful options the collection offers (better removal, faster mana, more synergy, stronger threats). ${landsInstruction} Focus changes on SPELL slots, not land count.`;
+    const result = await api.call<DeckResult>("/api/shore-up-deck", {
+      ...payload(),
+      powerLevel: next,
+      deck: activeResult.deck,
+      weaknesses: [direction],
+    });
+    if (result) applyDeckResult("Power-adjusted", result);
   }, [api, payload, prefs, activeResult, applyDeckResult]);
 
   const openHistoryEntry = useCallback(

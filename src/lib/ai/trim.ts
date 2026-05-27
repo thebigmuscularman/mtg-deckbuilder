@@ -650,37 +650,62 @@ export function trimDeckToCollection(
   }
 
   // Two-sided clamp: when the user explicitly chose a land count, also cut
-  // basics if the AI shipped too many lands. We only trim BASICS to avoid
-  // dropping fixing-critical nonbasics the player owns.
+  // lands if the AI shipped too many. Cut order: basics first (fungible),
+  // then non-basic lands by ascending importance (low quantity, late position,
+  // not mentioned in the deck's prose). The user's slider wins.
   if (explicitLandsTarget !== null) {
     const lands = countLands();
     if (lands > explicitLandsTarget) {
       const overshoot = lands - explicitLandsTarget;
-      const basics = trimmedMainboard
-        .map((line, idx) => ({ idx, isBasic: isBasicLand(line.name) }))
-        .filter((b) => b.isBasic)
-        .sort(
-          (a, b) =>
-            trimmedMainboard[b.idx].quantity - trimmedMainboard[a.idx].quantity,
-        );
+      type LandCut = { idx: number; isBasic: boolean; score: number };
+      const landRows: LandCut[] = trimmedMainboard
+        .map((line, idx) => {
+          const card = owned.get(nameKey(line.name))?.card ?? null;
+          const typeLine = (card?.type_line ?? "").toLowerCase();
+          const isBasic = isBasicLand(line.name);
+          const isLand = isBasic || typeLine.includes("land");
+          if (!isLand) return null;
+          // Importance score (lower = cut first): basics are fungible so
+          // dock them; then non-basics in original importance order.
+          const { score } = importanceScore(line, idx);
+          return { idx, isBasic, score: isBasic ? -1 : score };
+        })
+        .filter((row): row is LandCut => row !== null)
+        .sort((a, b) => a.score - b.score);
+
       let toCut = overshoot;
-      for (const b of basics) {
+      let basicsCut = 0;
+      let nonBasicsCut = 0;
+      for (const row of landRows) {
         if (toCut <= 0) break;
-        const current = trimmedMainboard[b.idx].quantity;
+        const current = trimmedMainboard[row.idx].quantity;
+        if (current <= 0) continue;
         const take = Math.min(toCut, current);
-        trimmedMainboard[b.idx].quantity -= take;
+        trimmedMainboard[row.idx].quantity -= take;
         toCut -= take;
+        if (row.isBasic) basicsCut += take;
+        else nonBasicsCut += take;
       }
       trimmedMainboard = trimmedMainboard.filter((l) => l.quantity > 0);
-      const cut = overshoot - toCut;
-      if (cut > 0) {
+      const totalCut = basicsCut + nonBasicsCut;
+      if (totalCut > 0) {
+        const detail = [
+          basicsCut > 0
+            ? `${basicsCut} basic${basicsCut === 1 ? "" : "s"}`
+            : null,
+          nonBasicsCut > 0
+            ? `${nonBasicsCut} non-basic land${nonBasicsCut === 1 ? "" : "s"}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" + ");
         adjustments.push(
-          `Trimmed ${cut} basic land${cut === 1 ? "" : "s"} to match your ${explicitLandsTarget}-land target (was ${lands}).`,
+          `Trimmed ${detail} to match your ${explicitLandsTarget}-land target (was ${lands}, now ${countLands()}).`,
         );
       }
       if (toCut > 0) {
         adjustments.push(
-          `Could not reach ${explicitLandsTarget}-land target — ${toCut} extra non-basic land${toCut === 1 ? "" : "s"} remain in the deck.`,
+          `⚠️ Could not reach ${explicitLandsTarget}-land target — ${toCut} extra land${toCut === 1 ? "" : "s"} remain.`,
         );
       }
       mainCount = sumQty(trimmedMainboard);
