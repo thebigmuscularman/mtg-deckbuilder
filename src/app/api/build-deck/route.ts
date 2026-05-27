@@ -19,6 +19,7 @@ const bodySchema = z.object({
     }),
   ),
   strategy: z.string().optional(),
+  colors: z.array(z.enum(["W", "U", "B", "R", "G"])).optional(),
 });
 
 export const maxDuration = 120;
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { format, resolved, strategy } = parsed.data;
+    const { format, resolved, strategy, colors } = parsed.data;
     const playable = resolved.filter((r) => r.card) as ResolvedCollectionCard[];
 
     if (playable.length < 10) {
@@ -49,6 +50,7 @@ export async function POST(request: Request) {
       format as FormatId,
       playable,
       strategy,
+      colors,
     );
 
     const validation = validateDeck(deck, playable);

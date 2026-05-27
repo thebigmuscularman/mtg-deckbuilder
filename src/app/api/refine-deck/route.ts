@@ -30,6 +30,11 @@ const bodySchema = z.object({
     description: z.string(),
     commander: z.string().nullable(),
     commanderReason: z.string().optional(),
+    archetype: z.string().optional(),
+    overview: z.string().optional(),
+    winConditions: z.array(z.string()).optional(),
+    strengths: z.array(z.string()).optional(),
+    weaknesses: z.array(z.string()).optional(),
     mainboard: z.array(cardLineSchema),
     sideboard: z.array(cardLineSchema),
     strategy: z.string(),
@@ -38,6 +43,7 @@ const bodySchema = z.object({
   }),
   errors: z.array(z.string()),
   strategy: z.string().optional(),
+  colors: z.array(z.enum(["W", "U", "B", "R", "G"])).optional(),
 });
 
 export const maxDuration = 120;
@@ -54,7 +60,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { format, resolved, deck, errors, strategy } = parsed.data;
+    const { format, resolved, deck, errors, strategy, colors } = parsed.data;
     const playable = resolved.filter((r) => r.card) as ResolvedCollectionCard[];
 
     if (!errors.length) {
@@ -72,6 +78,7 @@ export async function POST(request: Request) {
       previousDeck,
       errors,
       strategy,
+      colors,
     );
 
     const validation = validateDeck(refinedDeck, playable);

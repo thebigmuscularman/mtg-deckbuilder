@@ -68,6 +68,11 @@ export interface BuiltDeck {
   format: FormatId;
   commander: string | null;
   commanderReason?: string;
+  archetype?: string;
+  overview?: string;
+  winConditions?: string[];
+  strengths?: string[];
+  weaknesses?: string[];
   mainboard: DeckCardLine[];
   sideboard: DeckCardLine[];
   strategy: string;

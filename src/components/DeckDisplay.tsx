@@ -106,6 +106,58 @@ function CardRow({ line }: { line: EnrichedLine }) {
   );
 }
 
+function InfoList({
+  title,
+  icon,
+  items,
+  accent,
+}: {
+  title: string;
+  icon: string;
+  items: string[];
+  accent: "amber" | "emerald" | "rose";
+}) {
+  const palette = {
+    amber: {
+      ring: "ring-amber-700/40",
+      bg: "bg-amber-950/30",
+      head: "text-amber-300",
+      bullet: "text-amber-500/80",
+    },
+    emerald: {
+      ring: "ring-emerald-800/40",
+      bg: "bg-emerald-950/30",
+      head: "text-emerald-300",
+      bullet: "text-emerald-400/80",
+    },
+    rose: {
+      ring: "ring-rose-800/40",
+      bg: "bg-rose-950/30",
+      head: "text-rose-300",
+      bullet: "text-rose-400/80",
+    },
+  }[accent];
+
+  return (
+    <div className={`rounded-2xl ${palette.bg} p-4 ring-1 ${palette.ring}`}>
+      <p
+        className={`mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] ${palette.head}`}
+      >
+        <span className="text-sm">{icon}</span>
+        {title}
+      </p>
+      <ul className="space-y-1.5 text-sm leading-snug text-stone-200/90">
+        {items.map((item, i) => (
+          <li key={`${i}-${item}`} className="flex gap-2">
+            <span className={`mt-1 shrink-0 ${palette.bullet}`}>•</span>
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function SectionHeader({ title, count }: { title: string; count: number }) {
   return (
     <div className="mb-3 flex items-center gap-3">
@@ -157,24 +209,67 @@ export function DeckDisplay({ deck, enriched, validation }: DeckDisplayProps) {
       <header className="glass-panel relative overflow-hidden rounded-3xl p-6 sm:p-8">
         <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-amber-500/15 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-20 -left-20 h-56 w-56 rounded-full bg-purple-500/10 blur-3xl" />
-        <div className="relative">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.25em] text-amber-500/80">
-            Brewed deck
-          </p>
+        <div className="relative space-y-4">
+          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.25em]">
+            <span className="text-amber-500/80">Brewed deck</span>
+            {deck.archetype && (
+              <span className="rounded-full border border-amber-700/40 bg-amber-950/40 px-3 py-0.5 text-amber-300/90">
+                {deck.archetype}
+              </span>
+            )}
+            <span className="rounded-full border border-stone-700/60 bg-stone-900/60 px-3 py-0.5 text-stone-400">
+              {deck.format}
+            </span>
+          </div>
           <h2 className="shimmer-text text-3xl font-black tracking-tight sm:text-4xl">
             {deck.name}
           </h2>
-          <p className="mt-3 text-stone-300/90 sm:text-lg">{deck.description}</p>
+          <p className="text-stone-300/90 sm:text-lg">{deck.description}</p>
           {deck.commander && (
-            <p className="mt-3 text-sm text-amber-300/90">
+            <p className="text-sm text-amber-300/90">
               <span className="font-semibold uppercase tracking-[0.15em] text-amber-500/80">
                 Commander:
               </span>{" "}
               <span className="font-semibold text-amber-100">{deck.commander}</span>
             </p>
           )}
+          {deck.overview && (
+            <div className="rounded-2xl border border-amber-900/30 bg-stone-950/40 p-4 text-sm leading-relaxed text-stone-200/95 sm:text-base">
+              {deck.overview}
+            </div>
+          )}
+          {(deck.winConditions?.length ||
+            deck.strengths?.length ||
+            deck.weaknesses?.length) && (
+            <div className="grid gap-3 sm:grid-cols-3">
+              {deck.winConditions && deck.winConditions.length > 0 && (
+                <InfoList
+                  title="Win conditions"
+                  icon="🏆"
+                  items={deck.winConditions}
+                  accent="amber"
+                />
+              )}
+              {deck.strengths && deck.strengths.length > 0 && (
+                <InfoList
+                  title="Strengths"
+                  icon="💪"
+                  items={deck.strengths}
+                  accent="emerald"
+                />
+              )}
+              {deck.weaknesses && deck.weaknesses.length > 0 && (
+                <InfoList
+                  title="Weaknesses"
+                  icon="⚠"
+                  items={deck.weaknesses}
+                  accent="rose"
+                />
+              )}
+            </div>
+          )}
           {validation?.valid && (
-            <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-emerald-700/40 bg-emerald-950/50 px-4 py-1.5 text-sm font-medium text-emerald-300">
+            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-700/40 bg-emerald-950/50 px-4 py-1.5 text-sm font-medium text-emerald-300">
               <span className="text-base">✓</span>
               Legal & playable from your collection
             </div>

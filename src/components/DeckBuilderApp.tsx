@@ -11,11 +11,24 @@ import type {
 import { DeckDisplay } from "./DeckDisplay";
 
 type Step = "upload" | "review" | "deck";
+type Color = "W" | "U" | "B" | "R" | "G";
+
+const COLOR_META: Record<
+  Color,
+  { name: string; bg: string; ring: string; text: string; symbol: string }
+> = {
+  W: { name: "White", bg: "bg-yellow-50", ring: "ring-yellow-200", text: "text-yellow-900", symbol: "☀" },
+  U: { name: "Blue", bg: "bg-sky-300", ring: "ring-sky-400", text: "text-sky-950", symbol: "💧" },
+  B: { name: "Black", bg: "bg-stone-800", ring: "ring-stone-600", text: "text-stone-100", symbol: "☠" },
+  R: { name: "Red", bg: "bg-red-400", ring: "ring-red-500", text: "text-red-950", symbol: "🔥" },
+  G: { name: "Green", bg: "bg-green-400", ring: "ring-green-500", text: "text-green-950", symbol: "🌲" },
+};
 
 export function DeckBuilderApp() {
   const [step, setStep] = useState<Step>("upload");
   const [format, setFormat] = useState<FormatId>("modern");
   const [strategy, setStrategy] = useState("");
+  const [colors, setColors] = useState<Color[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resolved, setResolved] = useState<ResolvedCollectionCard[]>([]);
@@ -70,7 +83,7 @@ export function DeckBuilderApp() {
       const res = await fetch("/api/build-deck", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ format, resolved, strategy }),
+        body: JSON.stringify({ format, resolved, strategy, colors }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Build failed");
@@ -86,7 +99,7 @@ export function DeckBuilderApp() {
     } finally {
       setLoading(false);
     }
-  }, [format, resolved, strategy]);
+  }, [format, resolved, strategy, colors]);
 
   const refineDeck = useCallback(async () => {
     if (!deckResult) return;
@@ -103,6 +116,7 @@ export function DeckBuilderApp() {
           deck: deckResult.deck,
           errors: deckResult.validation.errors,
           strategy,
+          colors,
         }),
       });
       const data = await res.json();
@@ -118,7 +132,7 @@ export function DeckBuilderApp() {
     } finally {
       setLoading(false);
     }
-  }, [deckResult, format, resolved, strategy]);
+  }, [deckResult, format, resolved, strategy, colors]);
 
   const downloadDeck = useCallback(() => {
     if (!deckResult) return;
@@ -315,6 +329,60 @@ export function DeckBuilderApp() {
             </div>
             <p className="mb-6 text-xs italic text-stone-500">
               {FORMATS[format].description}
+            </p>
+
+            <label className="mb-3 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
+              <span>
+                Colors <span className="text-stone-600">(optional)</span>
+              </span>
+              {colors.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setColors([])}
+                  className="text-[0.65rem] font-normal normal-case tracking-normal text-stone-500 hover:text-amber-300"
+                >
+                  Clear
+                </button>
+              )}
+            </label>
+            <div className="mb-2 flex flex-wrap gap-2">
+              {(Object.keys(COLOR_META) as Color[]).map((c) => {
+                const meta = COLOR_META[c];
+                const active = colors.includes(c);
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() =>
+                      setColors((prev) =>
+                        prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c],
+                      )
+                    }
+                    className={`card-hover flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+                      active
+                        ? `${meta.bg} ${meta.text} shadow-lg ring-2 ${meta.ring}`
+                        : "bg-stone-800/80 text-stone-400 ring-1 ring-stone-700/60 hover:bg-stone-700/80 hover:text-stone-200"
+                    }`}
+                  >
+                    <span
+                      className={`flex h-6 w-6 items-center justify-center rounded-full text-xs ${
+                        active ? "bg-black/10" : "bg-stone-700/60"
+                      }`}
+                    >
+                      {meta.symbol}
+                    </span>
+                    {meta.name}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mb-6 text-xs italic text-stone-500">
+              {colors.length === 0
+                ? "Pick none to let the AI choose any colors that fit your collection."
+                : format === "commander"
+                ? `Commander must have exactly these ${colors.length} color${colors.length === 1 ? "" : "s"} in its identity.`
+                : `Deck will be limited to these ${colors.length} color${colors.length === 1 ? "" : "s"}.`}
             </p>
 
             <label className="mb-3 block text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
