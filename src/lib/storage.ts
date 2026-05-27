@@ -27,6 +27,7 @@ export type UserPrefs = {
   theme: "dark" | "light";
   powerLevel: PowerLevelId;
   avoidList?: string;
+  mustIncludeList?: string;
   houseRules?: HouseRules;
   politicsFriendly?: boolean;
   allowIllegal?: boolean;

@@ -23,6 +23,7 @@ export type DeckPrefs = {
   budgetMax: number;
   powerLevel: PowerLevelId;
   avoidList: string;
+  mustIncludeList: string;
   houseRules: HouseRules;
   politicsFriendly: boolean;
   allowIllegal: boolean;
@@ -39,6 +40,7 @@ export type DeckPrefsApi = DeckPrefs & {
   setBudgetMax: (n: number) => void;
   setPowerLevel: (p: PowerLevelId) => void;
   setAvoidList: (s: string) => void;
+  setMustIncludeList: (s: string) => void;
   setHouseRules: React.Dispatch<React.SetStateAction<HouseRules>>;
   setPoliticsFriendly: (b: boolean) => void;
   setAllowIllegal: (b: boolean) => void;
@@ -57,6 +59,7 @@ const DEFAULTS: DeckPrefs = {
   budgetMax: 0,
   powerLevel: DEFAULT_POWER_LEVEL,
   avoidList: "",
+  mustIncludeList: "",
   houseRules: DEFAULT_HOUSE_RULES,
   politicsFriendly: false,
   allowIllegal: false,
@@ -74,6 +77,9 @@ export function useDeckPrefs(): DeckPrefsApi {
   const [budgetMax, setBudgetMax] = useState(DEFAULTS.budgetMax);
   const [powerLevel, setPowerLevel] = useState<PowerLevelId>(DEFAULTS.powerLevel);
   const [avoidList, setAvoidList] = useState(DEFAULTS.avoidList);
+  const [mustIncludeList, setMustIncludeList] = useState(
+    DEFAULTS.mustIncludeList,
+  );
   const [houseRules, setHouseRules] = useState<HouseRules>(DEFAULTS.houseRules);
   const [politicsFriendly, setPoliticsFriendly] = useState(
     DEFAULTS.politicsFriendly,
@@ -112,6 +118,7 @@ export function useDeckPrefs(): DeckPrefsApi {
     if (p.landsTarget) setLandsTarget(p.landsTarget);
     if (p.powerLevel && isPowerLevelId(p.powerLevel)) setPowerLevel(p.powerLevel);
     if (p.avoidList !== undefined) setAvoidList(p.avoidList);
+    if (p.mustIncludeList !== undefined) setMustIncludeList(p.mustIncludeList);
     if (p.houseRules) setHouseRules(p.houseRules);
     if (p.politicsFriendly !== undefined) setPoliticsFriendly(p.politicsFriendly);
   }, []);
@@ -123,6 +130,7 @@ export function useDeckPrefs(): DeckPrefsApi {
     budgetMax,
     powerLevel,
     avoidList,
+    mustIncludeList,
     houseRules,
     politicsFriendly,
     allowIllegal,
@@ -136,6 +144,7 @@ export function useDeckPrefs(): DeckPrefsApi {
     setBudgetMax,
     setPowerLevel,
     setAvoidList,
+    setMustIncludeList,
     setHouseRules,
     setPoliticsFriendly,
     setAllowIllegal,
@@ -157,6 +166,7 @@ export function brewPayload(p: DeckPrefs, resolved: unknown) {
     budgetMax: p.budgetMax > 0 ? p.budgetMax : undefined,
     powerLevel: p.powerLevel,
     avoidList: p.avoidList.trim() || undefined,
+    mustIncludeList: p.mustIncludeList.trim() || undefined,
     houseRules: p.houseRules,
     politicsFriendly:
       p.format === "commander" ? p.politicsFriendly : undefined,

@@ -143,6 +143,42 @@ export function trimDeckToCollection(
   let trimmedMainboard = clampLines(deck.mainboard, "mainboard");
   let trimmedSideboard = clampLines(deck.sideboard, "sideboard");
 
+  // Inject any must-include cards the AI omitted (only if they're owned).
+  // Done BEFORE the over-count cut so the cut treats them like normal lines
+  // that happen to score very high — they survive the trim by importance.
+  const missingMustIncludes: string[] = [];
+  for (const requested of brewPrefs?.mustIncludeCards ?? []) {
+    const requestedKey = nameKey(requested);
+    const ownedEntry = owned.get(requestedKey);
+    if (!ownedEntry) {
+      missingMustIncludes.push(requested);
+      continue;
+    }
+    const display = getDisplayName(ownedEntry.card);
+    const displayKey = nameKey(display);
+    const inMain = trimmedMainboard.find(
+      (l) => nameKey(l.name) === displayKey,
+    );
+    const inSide = trimmedSideboard.find(
+      (l) => nameKey(l.name) === displayKey,
+    );
+    const isCommander =
+      commander && nameKey(commander) === displayKey;
+    if (inMain || inSide || isCommander) continue;
+    trimmedMainboard.push({
+      name: display,
+      quantity: 1,
+      reason: `User-requested inclusion.`,
+      scryfallId: ownedEntry.card.id,
+    });
+    adjustments.push(`Added ${display} (user must-include).`);
+  }
+  if (missingMustIncludes.length) {
+    adjustments.push(
+      `Could not include user-requested card${missingMustIncludes.length === 1 ? "" : "s"} (not in collection): ${missingMustIncludes.join(", ")}.`,
+    );
+  }
+
   const filterLines = (
     lines: DeckCardLine[],
     zone: string,
@@ -299,6 +335,10 @@ export function trimDeckToCollection(
 
   const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+  const mustIncludeKeys = new Set(
+    (brewPrefs?.mustIncludeCards ?? []).map((n) => nameKey(n)),
+  );
+
   const importanceScore = (
     line: DeckCardLine,
     position: number,
@@ -310,6 +350,7 @@ export function trimDeckToCollection(
     const isLand = isBasic || typeLine.includes("land");
 
     let score = 0;
+    if (mustIncludeKeys.has(key)) score += 9000;
     if (isBasic) score += 5000;
     else if (isLand) score += 1200;
     // Word-boundary avoids "Bolt" matching "thunderbolt" in the prose.
@@ -395,6 +436,13 @@ export function trimDeckToCollection(
   const minLands = minLandsFor(deck.format, brewPrefs);
   const minSpells = targetMain - minLands;
   const maxLandsCap = MAX_MAINBOARD_LANDS[deck.format];
+  // When the user explicitly set a land target the trim becomes a two-sided
+  // clamp: enforce minLands as a floor AND a ceiling. Otherwise the AI can
+  // ship "I want 36 lands" → 30 and we'd only ever pad up.
+  const explicitLandsTarget =
+    brewPrefs?.landsTarget && brewPrefs.landsTarget > 0
+      ? brewPrefs.landsTarget
+      : null;
 
   /**
    * Ordered list of basic-land "buckets" we'll round-robin when adding lands.
@@ -599,6 +647,44 @@ export function trimDeckToCollection(
       }
     }
     mainCount = sumQty(trimmedMainboard);
+  }
+
+  // Two-sided clamp: when the user explicitly chose a land count, also cut
+  // basics if the AI shipped too many lands. We only trim BASICS to avoid
+  // dropping fixing-critical nonbasics the player owns.
+  if (explicitLandsTarget !== null) {
+    const lands = countLands();
+    if (lands > explicitLandsTarget) {
+      const overshoot = lands - explicitLandsTarget;
+      const basics = trimmedMainboard
+        .map((line, idx) => ({ idx, isBasic: isBasicLand(line.name) }))
+        .filter((b) => b.isBasic)
+        .sort(
+          (a, b) =>
+            trimmedMainboard[b.idx].quantity - trimmedMainboard[a.idx].quantity,
+        );
+      let toCut = overshoot;
+      for (const b of basics) {
+        if (toCut <= 0) break;
+        const current = trimmedMainboard[b.idx].quantity;
+        const take = Math.min(toCut, current);
+        trimmedMainboard[b.idx].quantity -= take;
+        toCut -= take;
+      }
+      trimmedMainboard = trimmedMainboard.filter((l) => l.quantity > 0);
+      const cut = overshoot - toCut;
+      if (cut > 0) {
+        adjustments.push(
+          `Trimmed ${cut} basic land${cut === 1 ? "" : "s"} to match your ${explicitLandsTarget}-land target (was ${lands}).`,
+        );
+      }
+      if (toCut > 0) {
+        adjustments.push(
+          `Could not reach ${explicitLandsTarget}-land target — ${toCut} extra non-basic land${toCut === 1 ? "" : "s"} remain in the deck.`,
+        );
+      }
+      mainCount = sumQty(trimmedMainboard);
+    }
   }
 
   // Sideboard: enforce max.

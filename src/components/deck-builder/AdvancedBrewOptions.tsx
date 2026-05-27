@@ -118,16 +118,19 @@ export function AdvancedBrewOptions({
           type="range"
           min={format === "commander" ? 30 : 20}
           max={format === "commander" ? 42 : 28}
+          // Any onChange commits the value immediately so users don't get
+          // surprised by a "default" displayed number that wasn't actually
+          // chosen. landsTarget=0 means "auto"; we render the default for the
+          // slider thumb position only.
           value={landsTarget > 0 ? landsTarget : defaultLands}
           onChange={(e) => setLandsTarget(parseInt(e.target.value, 10))}
-          onMouseUp={() => {
-            if (landsTarget <= 0) setLandsTarget(defaultLands);
-          }}
           className="w-full"
         />
         <div className="mt-1 flex items-center justify-center gap-3">
           <p className="text-sm tabular-nums text-amber-200">
-            {landsTarget > 0 ? `${landsTarget} lands` : "AI picks land count"}
+            {landsTarget > 0
+              ? `${landsTarget} lands (locked)`
+              : `auto (≈${defaultLands} lands — drag slider to lock)`}
           </p>
           {landsTarget > 0 && (
             <button

@@ -150,6 +150,17 @@ export function ReviewStep({
         </p>
 
         <SectionLabel>
+          Must include <span className="text-stone-600">(optional)</span>
+        </SectionLabel>
+        <textarea
+          value={prefs.mustIncludeList}
+          onChange={(e) => prefs.setMustIncludeList(e.target.value)}
+          placeholder="Cards the AI must put in (one per line or comma-separated)"
+          rows={3}
+          className="mb-4 w-full resize-y rounded-xl border border-stone-700/60 bg-stone-950/60 px-4 py-3 text-sm text-stone-100 placeholder:text-stone-600 focus:border-amber-500 focus:outline-none"
+        />
+
+        <SectionLabel>
           Ban list <span className="text-stone-600">(optional)</span>
         </SectionLabel>
         <textarea

@@ -33,7 +33,10 @@ function baseMessages(
   args: BrewArgs,
 ): OpenAI.Chat.ChatCompletionMessageParam[] {
   return [
-    { role: "system", content: systemPrompt(args.format) },
+    {
+      role: "system",
+      content: systemPrompt(args.format, args.brewPrefs?.landsTarget),
+    },
     {
       role: "user",
       content: buildBaseUserMessage(

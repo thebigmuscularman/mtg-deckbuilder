@@ -27,6 +27,8 @@ export type GameLength = "fast" | "balanced" | "grindy";
 export type DeckBuildPreferences = {
   powerLevel?: PowerLevelId;
   avoidCards?: string[];
+  /** Cards the user wants the deck to include if at all possible. */
+  mustIncludeCards?: string[];
   houseRules?: HouseRules;
   politicsFriendly?: boolean;
   allowIllegal?: boolean;
@@ -126,6 +128,16 @@ ${avoidCards.map((n) => `- ${n}`).join("\n")}
 If the deck would normally want one of these cards, pick a different card that fills the same role.`;
 }
 
+export function getMustIncludePromptBlock(
+  mustInclude: string[],
+): string | null {
+  if (!mustInclude.length) return null;
+  return `*** USER MUST-INCLUDE LIST — HARD CONSTRAINT ***
+The user explicitly requested these cards be in the deck. Include each one (mainboard or commander as appropriate) as long as it appears in the collection list below. Drop OTHER lower-impact cards from your draft to make room — do not skip these:
+${mustInclude.map((n) => `- ${n}`).join("\n")}
+If a card on this list is NOT in the collection, note it in the deck's "warnings" array and proceed without it. Do not invent or substitute it silently.`;
+}
+
 export function getHouseRulesPromptBlock(rules: HouseRules): string | null {
   const lines: string[] = [];
   if (rules.noMassLandDestruction) {
@@ -203,8 +215,10 @@ export function getLandsTargetPromptBlock(
   landsTarget: number,
 ): string | null {
   if (!landsTarget || landsTarget < 18 || landsTarget > 45) return null;
-  return `*** LAND COUNT TARGET: ${landsTarget} ***
-The mainboard should include exactly ${landsTarget} lands (basic + nonbasic). Adjust non-land slots to hit format card count with this land total.`;
+  const totalCards = format === "commander" ? 99 : 60;
+  const spellSlots = totalCards - landsTarget;
+  return `*** USER OVERRIDE — LAND COUNT MUST BE EXACTLY ${landsTarget} ***
+This OVERRIDES the format default. The mainboard MUST include exactly ${landsTarget} lands (basic + nonbasic combined) and exactly ${spellSlots} non-land cards. If a power-level guideline or any earlier instruction suggests a different number, ignore it — the user's slider wins. Count lands explicitly before submitting.`;
 }
 
 export function buildPreferencesPromptBlock(
@@ -212,6 +226,7 @@ export function buildPreferencesPromptBlock(
   prefs: DeckBuildPreferences,
 ): string {
   const blocks = [
+    getMustIncludePromptBlock(prefs.mustIncludeCards ?? []),
     getAvoidListPromptBlock(prefs.avoidCards ?? []),
     getHouseRulesPromptBlock(prefs.houseRules ?? DEFAULT_HOUSE_RULES),
     getPoliticsFriendlyPromptBlock(format, !!prefs.politicsFriendly),

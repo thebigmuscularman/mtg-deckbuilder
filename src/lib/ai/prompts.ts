@@ -5,7 +5,10 @@ import { getPowerPromptBlock } from "../power-levels";
 import { buildCollectionContext, buildColorInventory } from "./collection-prompt";
 import { formatColorIdentity, sortWubrg } from "./color-utils";
 
-export function systemPrompt(format: FormatId): string {
+export function systemPrompt(
+  format: FormatId,
+  landsTargetOverride?: number,
+): string {
   const singletonReminder =
     format === "commander"
       ? `\n- COMMANDER SINGLETON: Every non-basic card may appear AT MOST 1 time in the entire deck. The collection list shows each non-basic as "1x" for this reason. Do NOT use 2x, 3x, or 4x of any non-basic card. The ONLY cards you may repeat are basic lands (Plains, Island, Swamp, Mountain, Forest, Wastes).
@@ -24,7 +27,7 @@ ABSOLUTE RULES — violating any of these will cause the deck to be auto-trimmed
 - The sum of all mainboard quantities MUST equal the exact mainboard size for the format. Count carefully before responding. Do not overshoot or undershoot by even one card.
 - For Commander, the mainboard is EXACTLY 99 cards (the commander is separate). For Standard/Modern, the mainboard is EXACTLY 60 cards.${singletonReminder}
 
-${formatRulesPrompt(format)}
+${formatRulesPrompt(format, landsTargetOverride)}
 
 Design principles:
 - Include a coherent game plan (aggro, control, midrange, combo, etc.)

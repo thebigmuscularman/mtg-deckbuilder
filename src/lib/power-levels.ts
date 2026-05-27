@@ -108,7 +108,7 @@ Build to win on turn 3-5 against three other powerful decks:
 - Maximum fast mana, maximum free interaction, maximum tutors. Every staple the collection contains should be considered.
 - Two compact, redundantly-tutorable combo lines (e.g. Thoracle + Consultation/Pact, Isochron + Dramatic Reversal, Underworld Breach + LED, Kiki/Splinter Twin lines).
 - 1-CMC interaction is preferred over 2+ CMC where available.
-- Land count can dip to 30 in Commander if the deck has 12+ pieces of fast mana / rocks.
+- Land count can dip to 30 in Commander if the deck has 12+ pieces of fast mana / rocks (but the user's slider, if set, overrides this).
 - Curve should be brutally low; if a card costs 4+ it must be a haymaker that immediately wins or stops a win.
 - Stax pieces are fine where they help the deck's plan more than they hurt it.
 
