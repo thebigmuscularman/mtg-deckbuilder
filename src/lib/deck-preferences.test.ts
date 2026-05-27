@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { cardViolatesHouseRules } from "./deck-preferences";
+import {
+  cardViolatesHouseRules,
+  suggestPowerLevelAdjustment,
+} from "./deck-preferences";
 import { mockCard } from "./test-helpers";
 
 const allRules = {
@@ -46,5 +49,21 @@ describe("cardViolatesHouseRules", () => {
     expect(
       cardViolatesHouseRules(mockCard({ name: "Time Warp" }), allRules),
     ).toBe("extra turn effect");
+  });
+});
+
+describe("suggestPowerLevelAdjustment", () => {
+  it("suggests lowering power when deck reads high", () => {
+    expect(suggestPowerLevelAdjustment("high", "optimized")).toBe("focused");
+    expect(suggestPowerLevelAdjustment("high", "casual")).toBeNull();
+  });
+
+  it("suggests raising power when deck reads low", () => {
+    expect(suggestPowerLevelAdjustment("low", "focused")).toBe("optimized");
+    expect(suggestPowerLevelAdjustment("low", "high")).toBeNull();
+  });
+
+  it("returns null when on target", () => {
+    expect(suggestPowerLevelAdjustment("match", "focused")).toBeNull();
   });
 });

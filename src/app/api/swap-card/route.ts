@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { z } from "zod";
 import { swapCardWithAI } from "@/lib/ai-deckbuilder";
 import { brewPreferencesFromBody } from "@/lib/api-brew-body";
@@ -7,8 +6,13 @@ import {
   builtDeckBodySchema,
   resolvedCollectionSchema,
 } from "@/lib/api-schemas";
-import { validateDeck } from "@/lib/deck-validation";
-import type { BuiltDeck, FormatId, ResolvedCollectionCard } from "@/lib/types";
+import {
+  badRequest,
+  deckResponse,
+  playableFrom,
+  serverError,
+} from "@/lib/api-route-helpers";
+import type { BuiltDeck } from "@/lib/types";
 
 const bodySchema = z.object({
   ...brewRequestFields,
@@ -22,14 +26,8 @@ export const maxDuration = 90;
 
 export async function POST(request: Request) {
   try {
-    const json = await request.json();
-    const parsed = bodySchema.safeParse(json);
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Invalid request", details: parsed.error.flatten() },
-        { status: 400 },
-      );
-    }
+    const parsed = bodySchema.safeParse(await request.json());
+    if (!parsed.success) return badRequest("Invalid request", parsed.error.flatten());
 
     const {
       format,
@@ -42,39 +40,22 @@ export async function POST(request: Request) {
       budgetMax,
     } = parsed.data;
     const brewPrefs = brewPreferencesFromBody(parsed.data);
-    const playable = resolved.filter((r) => r.card) as ResolvedCollectionCard[];
+    const playable = playableFrom(resolved);
     const previousDeck: BuiltDeck = { ...deck, warnings: deck.warnings ?? [] };
 
-    const { deck: swapped, validationErrors } = await swapCardWithAI(
-      format as FormatId,
-      playable,
+    const result = await swapCardWithAI({
+      format,
+      resolved: playable,
       previousDeck,
-      cardName,
+      cardToReplace: cardName,
       zone,
-      strategy,
-      colors,
-      budgetMax,
+      strategyHint: strategy,
+      colorPref: colors,
+      maxBudgetUsd: budgetMax,
       brewPrefs,
-    );
-
-    const validation = validateDeck(swapped, playable);
-
-    return NextResponse.json({
-      deck: swapped,
-      validation: {
-        valid: validation.valid,
-        errors: validation.errors,
-        warnings: validation.warnings,
-      },
-      validationErrors,
-      enriched: {
-        mainboard: validation.enrichedMainboard,
-        sideboard: validation.enrichedSideboard,
-        commander: validation.commanderCard,
-      },
     });
+    return deckResponse(result, playable, brewPrefs.allowIllegal);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Swap failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return serverError(err, "Swap failed");
   }
 }

@@ -21,11 +21,19 @@ export const DEFAULT_HOUSE_RULES: HouseRules = {
   noExtraTurns: false,
 };
 
+export type InteractionDensity = "light" | "balanced" | "heavy";
+export type GameLength = "fast" | "balanced" | "grindy";
+
 export type DeckBuildPreferences = {
   powerLevel?: PowerLevelId;
   avoidCards?: string[];
   houseRules?: HouseRules;
   politicsFriendly?: boolean;
+  allowIllegal?: boolean;
+  interactionDensity?: InteractionDensity;
+  gameLength?: GameLength;
+  /** Target mainboard land count (e.g. 36 Commander, 24 aggro). */
+  landsTarget?: number;
 };
 
 export function parseAvoidList(text: string): string[] {
@@ -156,6 +164,49 @@ The user wants a deck that wins games without making enemies at the table:
 - The deck should feel fair to sit across from at a local game store.`;
 }
 
+export function getAllowIllegalPromptBlock(allow: boolean): string | null {
+  if (!allow) return null;
+  return `*** ALLOW FORMAT-ILLEGAL CARDS ***
+The user allows cards from their collection even if Scryfall marks them not legal in this format (e.g. Sol Ring in Modern, banned cards in Commander).
+- You may include any card from the collection list regardless of format legality on Scryfall.
+- Still obey copy limits, color identity, deck size, and collection quantities.`;
+}
+
+export function getInteractionDensityPromptBlock(
+  density: InteractionDensity,
+): string | null {
+  const blocks: Record<InteractionDensity, string> = {
+    light: `*** INTERACTION DENSITY: LIGHT ***
+Aim for ~5-8 interaction slots total (removal, counters, wipes combined). Prioritize your game plan; assume the table handles problems.`,
+    balanced: `*** INTERACTION DENSITY: BALANCED ***
+Aim for ~10-14 interaction slots — spot removal, 1-2 board wipes, and a few flexible answers without becoming a control deck.`,
+    heavy: `*** INTERACTION DENSITY: HEAVY ***
+Aim for ~16-22 interaction slots — multiple removal spells, counterspells, and board wipes. You are the table's police; still need a win condition.`,
+  };
+  return blocks[density];
+}
+
+export function getGameLengthPromptBlock(length: GameLength): string | null {
+  const blocks: Record<GameLength, string> = {
+    fast: `*** GAME LENGTH: FAST ***
+Build for games that end turns 6-9: low curve (avg CMC ~2.2-2.8), fewer than 24 lands in 60-card / fewer than 35 in Commander unless ramp-heavy, aggressive threats and reach.`,
+    balanced: `*** GAME LENGTH: BALANCED ***
+Standard mana base: ~22-25 lands in 60-card, ~35-38 in Commander. Mix early plays with mid-game and 2-4 finishers.`,
+    grindy: `*** GAME LENGTH: GRINDY ***
+Build for long games: higher land count, card draw, recursion, and inevitability. Include 2-4 haymakers that close after a long game.`,
+  };
+  return blocks[length];
+}
+
+export function getLandsTargetPromptBlock(
+  format: string,
+  landsTarget: number,
+): string | null {
+  if (!landsTarget || landsTarget < 18 || landsTarget > 45) return null;
+  return `*** LAND COUNT TARGET: ${landsTarget} ***
+The mainboard should include exactly ${landsTarget} lands (basic + nonbasic). Adjust non-land slots to hit format card count with this land total.`;
+}
+
 export function buildPreferencesPromptBlock(
   format: string,
   prefs: DeckBuildPreferences,
@@ -167,6 +218,20 @@ export function buildPreferencesPromptBlock(
   if (house) parts.push(house);
   const politics = getPoliticsFriendlyPromptBlock(format, !!prefs.politicsFriendly);
   if (politics) parts.push(politics);
+  const illegal = getAllowIllegalPromptBlock(!!prefs.allowIllegal);
+  if (illegal) parts.push(illegal);
+  if (prefs.interactionDensity) {
+    const block = getInteractionDensityPromptBlock(prefs.interactionDensity);
+    if (block) parts.push(block);
+  }
+  if (prefs.gameLength) {
+    const block = getGameLengthPromptBlock(prefs.gameLength);
+    if (block) parts.push(block);
+  }
+  if (prefs.landsTarget) {
+    const block = getLandsTargetPromptBlock(format, prefs.landsTarget);
+    if (block) parts.push(block);
+  }
   return parts.join("\n\n");
 }
 
@@ -217,4 +282,16 @@ export function comparePowerToTarget(
     status,
     message,
   };
+}
+
+export function suggestPowerLevelAdjustment(
+  status: PowerTargetComparison["status"],
+  current: PowerLevelId,
+): PowerLevelId | null {
+  const order: PowerLevelId[] = ["casual", "focused", "optimized", "high"];
+  const idx = order.indexOf(current);
+  if (idx < 0) return null;
+  if (status === "high" && idx > 0) return order[idx - 1];
+  if (status === "low" && idx < order.length - 1) return order[idx + 1];
+  return null;
 }

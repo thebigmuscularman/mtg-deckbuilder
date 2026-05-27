@@ -64,3 +64,67 @@ describe("validateDeck", () => {
     expect(result.valid).toBe(true);
   });
 });
+
+describe("validateDeck allowIllegal", () => {
+  const solRing = mockCard({
+    name: "Sol Ring",
+    type_line: "Artifact",
+    legalities: { modern: "not_legal", commander: "legal" },
+  });
+
+  const collection = [
+    resolved({ name: "Sol Ring", quantity: 1 }, solRing),
+    ...Array.from({ length: 59 }, (_, i) =>
+      resolved(
+        { name: `Island ${i}`, quantity: 1 },
+        mockCard({
+          name: `Island ${i}`,
+          type_line: "Basic Land — Island",
+        }),
+      ),
+    ),
+  ];
+
+  it("rejects Sol Ring in Modern by default", () => {
+    const deck: BuiltDeck = {
+      name: "Test",
+      description: "d",
+      format: "modern",
+      commander: null,
+      mainboard: [
+        { name: "Sol Ring", quantity: 1 },
+        ...Array.from({ length: 59 }, (_, i) => ({
+          name: `Island ${i}`,
+          quantity: 1,
+        })),
+      ],
+      sideboard: [],
+      strategy: "s",
+      warnings: [],
+    };
+    const result = validateDeck(deck, collection);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("not legal"))).toBe(true);
+  });
+
+  it("allows Sol Ring in Modern when allowIllegal is set", () => {
+    const deck: BuiltDeck = {
+      name: "Test",
+      description: "d",
+      format: "modern",
+      commander: null,
+      mainboard: [
+        { name: "Sol Ring", quantity: 1 },
+        ...Array.from({ length: 59 }, (_, i) => ({
+          name: `Island ${i}`,
+          quantity: 1,
+        })),
+      ],
+      sideboard: [],
+      strategy: "s",
+      warnings: [],
+    };
+    const result = validateDeck(deck, collection, { allowIllegal: true });
+    expect(result.errors.every((e) => !e.includes("not legal"))).toBe(true);
+  });
+});

@@ -10,6 +10,7 @@ import {
   isBasicLand,
 } from "./formats";
 import { getDisplayName, nameKey } from "./scryfall";
+import { STUB_BASIC_LANDS } from "./basic-lands";
 
 export interface OwnedEntry {
   qty: number;
@@ -29,6 +30,11 @@ export interface OwnedEntry {
  * which spelling it echoes back. The same `{ qty, card }` object is
  * shared across all keys for a given card, so quantities never drift.
  */
+/** Inject the 5 basics with effectively-infinite quantity. Basics are free
+ *  in real Magic, but collection exports often omit them — without this,
+ *  the builder can't pad mana bases when the user's upload had no basics. */
+const VIRTUAL_BASIC_QTY = 999;
+
 export function buildOwnedIndex(
   resolved: ResolvedCollectionCard[],
 ): Map<string, OwnedEntry> {
@@ -49,6 +55,15 @@ export function buildOwnedIndex(
     // Don't let an alias clobber another card's display-name key.
     if (!index.has(entryAlias)) {
       index.set(entryAlias, entry);
+    }
+  }
+
+  for (const card of STUB_BASIC_LANDS) {
+    const key = nameKey(card.name);
+    if (!byDisplay.has(key)) {
+      const entry: OwnedEntry = { qty: VIRTUAL_BASIC_QTY, card };
+      byDisplay.set(key, entry);
+      index.set(key, entry);
     }
   }
 
@@ -82,10 +97,16 @@ export interface ValidationResult {
   commanderCard: ScryfallCard | null;
 }
 
+export type ValidateDeckOptions = {
+  allowIllegal?: boolean;
+};
+
 export function validateDeck(
   deck: BuiltDeck,
   resolved: ResolvedCollectionCard[],
+  options?: ValidateDeckOptions,
 ): ValidationResult {
+  const allowIllegal = options?.allowIllegal ?? false;
   const format = getFormat(deck.format);
   const owned = buildOwnedIndex(resolved);
   const errors: string[] = [];
@@ -138,17 +159,19 @@ export function validateDeck(
         );
       }
 
-      const legality =
-        line.card.legalities[format.scryfallLegalityKey] ?? "not_legal";
-      if (legality === "banned" || legality === "not_legal") {
-        errors.push(`${displayName} is not legal in ${format.label}`);
-      }
+      if (!allowIllegal) {
+        const legality =
+          line.card.legalities[format.scryfallLegalityKey] ?? "not_legal";
+        if (legality === "banned" || legality === "not_legal") {
+          errors.push(`${displayName} is not legal in ${format.label}`);
+        }
 
-      if (deck.format === "pauper" && line.card.rarity !== "common") {
-        errors.push(`${displayName} is not common — illegal in Pauper`);
-      }
-      if (legality === "restricted" && line.quantity > 1) {
-        errors.push(`${displayName} is restricted to 1 copy`);
+        if (deck.format === "pauper" && line.card.rarity !== "common") {
+          errors.push(`${displayName} is not common — illegal in Pauper`);
+        }
+        if (legality === "restricted" && line.quantity > 1) {
+          errors.push(`${displayName} is restricted to 1 copy`);
+        }
       }
 
       const maxCopies = format.maxCopies(line.card);

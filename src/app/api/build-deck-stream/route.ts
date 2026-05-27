@@ -1,90 +1,81 @@
 import { z } from "zod";
-import { buildDeckWithAI, type DeckBuildProgress } from "@/lib/ai-deckbuilder";
+import { buildDeckWithAI } from "@/lib/ai-deckbuilder";
 import { brewPreferencesFromBody } from "@/lib/api-brew-body";
 import { brewRequestFields } from "@/lib/api-schemas";
+import { playableFrom } from "@/lib/api-route-helpers";
 import { validateDeck } from "@/lib/deck-validation";
-import type { FormatId, ResolvedCollectionCard } from "@/lib/types";
 
 const bodySchema = z.object(brewRequestFields);
 
 export const maxDuration = 120;
 
-function sseLine(event: string, data: unknown): string {
-  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-}
+const sse = (event: string, data: unknown) =>
+  `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+
+const sseHeaders = {
+  "Content-Type": "text/event-stream",
+  "Cache-Control": "no-cache, no-transform",
+  Connection: "keep-alive",
+};
 
 export async function POST(request: Request) {
-  const json = await request.json();
-  const parsed = bodySchema.safeParse(json);
-
+  const parsed = bodySchema.safeParse(await request.json());
   if (!parsed.success) {
-    return new Response(
-      sseLine("error", { error: "Invalid request" }),
-      { status: 400, headers: { "Content-Type": "text/event-stream" } },
-    );
+    return new Response(sse("error", { error: "Invalid request" }), {
+      status: 400,
+      headers: sseHeaders,
+    });
   }
 
   const { format, resolved, strategy, colors, budgetMax } = parsed.data;
   const brewPrefs = brewPreferencesFromBody(parsed.data);
-  const playable = resolved.filter((r) => r.card) as ResolvedCollectionCard[];
+  const playable = playableFrom(resolved);
 
   if (playable.length < 10) {
     return new Response(
-      sseLine("error", { error: "Need at least 10 resolved cards." }),
-      { status: 400, headers: { "Content-Type": "text/event-stream" } },
+      sse("error", { error: "Need at least 10 resolved cards." }),
+      { status: 400, headers: sseHeaders },
     );
   }
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (event: string, data: unknown) => {
-        controller.enqueue(encoder.encode(sseLine(event, data)));
-      };
-
+      const send = (event: string, data: unknown) =>
+        controller.enqueue(encoder.encode(sse(event, data)));
       try {
         send("progress", { type: "status", message: "Starting brew…" });
-
-        const { deck, validationErrors } = await buildDeckWithAI(
-          format as FormatId,
-          playable,
-          strategy,
-          colors,
-          budgetMax,
-          (ev: DeckBuildProgress) => send("progress", ev),
+        const { deck, validationErrors } = await buildDeckWithAI({
+          format,
+          resolved: playable,
+          strategyHint: strategy,
+          colorPref: colors,
+          maxBudgetUsd: budgetMax,
+          onProgress: (ev) => send("progress", ev),
           brewPrefs,
-        );
-
-        const validation = validateDeck(deck, playable);
-
+        });
+        const v = validateDeck(deck, playable, {
+          allowIllegal: brewPrefs.allowIllegal,
+        });
         send("done", {
           deck,
-          validation: {
-            valid: validation.valid,
-            errors: validation.errors,
-            warnings: validation.warnings,
-          },
+          validation: { valid: v.valid, errors: v.errors, warnings: v.warnings },
           validationErrors,
           enriched: {
-            mainboard: validation.enrichedMainboard,
-            sideboard: validation.enrichedSideboard,
-            commander: validation.commanderCard,
+            mainboard: v.enrichedMainboard,
+            sideboard: v.enrichedSideboard,
+            commander: v.commanderCard,
           },
         });
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Build failed";
-        send("error", { error: message });
+        send("error", {
+          error: err instanceof Error ? err.message : "Build failed",
+        });
       } finally {
         controller.close();
       }
     },
   });
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-    },
-  });
+  return new Response(stream, { headers: sseHeaders });
 }

@@ -1,11 +1,17 @@
-import type { HouseRules } from "./deck-preferences";
+import type {
+  GameLength,
+  HouseRules,
+  InteractionDensity,
+} from "./deck-preferences";
 import type { PowerLevelId } from "./power-levels";
 import type { BuiltDeck, FormatId, ResolvedCollectionCard } from "./types";
 
 const COLLECTION_KEY = "mtg-deckbuilder:collection";
 const PREFS_KEY = "mtg-deckbuilder:prefs";
 const DECKS_KEY = "mtg-deckbuilder:decks";
+const PRESETS_KEY = "mtg-deckbuilder:presets";
 const MAX_DECKS = 8;
+const MAX_PRESETS = 12;
 
 export type SavedCollection = {
   resolved: ResolvedCollectionCard[];
@@ -23,6 +29,16 @@ export type UserPrefs = {
   avoidList?: string;
   houseRules?: HouseRules;
   politicsFriendly?: boolean;
+  allowIllegal?: boolean;
+  interactionDensity?: InteractionDensity;
+  gameLength?: GameLength;
+  landsTarget?: number;
+};
+
+export type PlaygroupPreset = {
+  id: string;
+  name: string;
+  prefs: Partial<UserPrefs>;
 };
 
 export type SavedDeckEntry = {
@@ -106,9 +122,33 @@ export function pushDeckHistory(deck: BuiltDeck): SavedDeckEntry[] {
   return next;
 }
 
+export function loadPlaygroupPresets(): PlaygroupPreset[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(PRESETS_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as PlaygroupPreset[];
+  } catch {
+    return [];
+  }
+}
+
+export function savePlaygroupPresets(presets: PlaygroupPreset[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(
+      PRESETS_KEY,
+      JSON.stringify(presets.slice(0, MAX_PRESETS)),
+    );
+  } catch {
+    // ignore
+  }
+}
+
 export function clearStoredData(): void {
   if (typeof window === "undefined") return;
   localStorage.removeItem(COLLECTION_KEY);
   localStorage.removeItem(PREFS_KEY);
   localStorage.removeItem(DECKS_KEY);
+  localStorage.removeItem(PRESETS_KEY);
 }

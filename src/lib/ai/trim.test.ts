@@ -73,6 +73,80 @@ describe("trimDeckToCollection", () => {
     expect(boltLine?.quantity).toBe(4);
   });
 
+  it("enforces a land floor by swapping spells for owned basics", () => {
+    // 14 unique red spells × 4 copies each = 56 spells, plus 4 Mountains = 60 cards.
+    const spellCards = Array.from({ length: 14 }, (_, i) =>
+      mockCard({ name: `Burn Spell ${i}`, color_identity: ["R"] }),
+    );
+    const richCollection = [
+      ...spellCards.map((c) =>
+        resolved({ name: c.name, quantity: 4 }, c),
+      ),
+      resolved({ name: "Mountain", quantity: 60 }, mountain),
+    ];
+    const deck: BuiltDeck = {
+      name: "Lava-only Burn",
+      description: "d",
+      format: "modern",
+      commander: null,
+      mainboard: [
+        ...spellCards.map((c) => ({ name: c.name, quantity: 4 })),
+        { name: "Mountain", quantity: 4 },
+      ],
+      sideboard: [],
+      strategy: "s",
+      warnings: [],
+    };
+    const total = deck.mainboard.reduce((s, l) => s + l.quantity, 0);
+    expect(total).toBe(60);
+
+    const { deck: trimmed, adjustments } = trimDeckToCollection(
+      deck,
+      richCollection,
+    );
+    const lands = trimmed.mainboard
+      .filter((l) => l.name === "Mountain")
+      .reduce((s, l) => s + l.quantity, 0);
+    expect(lands).toBeGreaterThanOrEqual(22);
+    expect(trimmed.mainboard.reduce((s, l) => s + l.quantity, 0)).toBe(60);
+    expect(adjustments.some((a) => a.includes("Land floor enforced"))).toBe(true);
+  });
+
+  it("backfills basics even when the collection has no basic-land entries", () => {
+    // User uploaded a Moxfield/Archidekt CSV that omitted basics.
+    // The AI ships a deck with too few lands.
+    // We should still ship a playable 60-card deck with ≥22 lands.
+    const spellCards = Array.from({ length: 12 }, (_, i) =>
+      mockCard({ name: `Bolt Variant ${i}`, color_identity: ["R"] }),
+    );
+    const noBasicsCollection = spellCards.map((c) =>
+      resolved({ name: c.name, quantity: 5 }, c),
+    );
+    const deck: BuiltDeck = {
+      name: "Mostly Spells",
+      description: "d",
+      format: "modern",
+      commander: null,
+      mainboard: [
+        ...spellCards.map((c) => ({ name: c.name, quantity: 4 })),
+        { name: "Mountain", quantity: 6 },
+        { name: "Plains", quantity: 6 },
+      ],
+      sideboard: [],
+      strategy: "s",
+      warnings: [],
+    };
+    const { deck: trimmed } = trimDeckToCollection(deck, noBasicsCollection);
+    const total = trimmed.mainboard.reduce((s, l) => s + l.quantity, 0);
+    expect(total).toBe(60);
+    const landCount = trimmed.mainboard
+      .filter((l) =>
+        ["Plains", "Island", "Swamp", "Mountain", "Forest"].includes(l.name),
+      )
+      .reduce((s, l) => s + l.quantity, 0);
+    expect(landCount).toBeGreaterThanOrEqual(22);
+  });
+
   it("drops cards over budget cap", () => {
     const expensive = mockCard({
       name: "Expensive Rock",

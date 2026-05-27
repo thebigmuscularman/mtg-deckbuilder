@@ -4,6 +4,28 @@ const SCRYFALL_BASE = "https://api.scryfall.com";
 const BATCH_SIZE = 75;
 const RATE_LIMIT_MS = 100;
 
+/** In-process cache — avoids re-fetching the same cards across uploads in one server session. */
+const cardCache = new Map<string, ScryfallCard>();
+
+export function clearScryfallCache(): void {
+  cardCache.clear();
+}
+
+function rememberCard(entry: CollectionEntry, card: ScryfallCard): void {
+  cardCache.set(cardKey(entry), card);
+  cardCache.set(nameKey(card.name), card);
+  if (card.card_faces?.[0]?.name) {
+    cardCache.set(nameKey(card.card_faces[0].name), card);
+  }
+}
+
+function lookupCached(entry: CollectionEntry): ScryfallCard | undefined {
+  return (
+    cardCache.get(cardKey(entry)) ??
+    cardCache.get(nameKey(entry.name))
+  );
+}
+
 /**
  * Canonical map key for matching card names across the codebase.
  * Trims AND lowercases so trailing whitespace (e.g. from paste lists)
@@ -70,7 +92,18 @@ export async function resolveCollection(
     }
   }
 
-  const toResolve = [...uniqueKeys.values()];
+  const toResolve: CollectionEntry[] = [];
+  for (const entry of uniqueKeys.values()) {
+    const cached = lookupCached(entry);
+    const key = cardKey(entry);
+    if (cached) {
+      results.set(key, cached);
+      results.set(nameKey(entry.name), cached);
+      rememberCard(entry, cached);
+    } else {
+      toResolve.push(entry);
+    }
+  }
 
   for (let i = 0; i < toResolve.length; i += BATCH_SIZE) {
     if (i > 0) await sleep(RATE_LIMIT_MS);
@@ -102,6 +135,11 @@ export async function resolveCollection(
       if (card.card_faces?.[0]?.name) {
         results.set(nameKey(card.card_faces[0].name), card);
       }
+    }
+
+    for (const entry of batch) {
+      const byName = results.get(nameKey(entry.name));
+      if (byName) rememberCard(entry, byName);
     }
 
     for (const entry of batch) {

@@ -117,11 +117,13 @@ export function formatRulesPrompt(formatId: FormatId): string {
 - Unlimited basic lands
 - Commander must be a legendary creature (or planeswalker with "can be your commander") from the collection
 - Every card's color identity must be a subset of the commander's color identity
-- Only Commander-legal cards`;
+- Only Commander-legal cards
+- LAND COUNT: include AT LEAST 35 lands (and typically 36–38). A Commander deck with fewer than 33 lands will not function — you MUST count lands before submitting. Use a mix of nonbasics from the collection plus basic lands to hit this. Basics are unlimited, so always pad with basics if non-basics are scarce.`;
   }
   return `Format: ${f.label}
 - Main deck: exactly ${f.minMainboard} cards
 - Up to 4 copies per non-basic-land card
 - Sideboard: optional, up to ${f.maxSideboard} cards
-- Only ${f.label}-legal cards per Scryfall legality`;
+- Only ${f.label}-legal cards per Scryfall legality
+- LAND COUNT: include AT LEAST 22 lands (typically 23–25 in 60-card formats). Aggro can run 20, control can run 26+. A 60-card deck with under 20 lands will mulligan to oblivion. You MUST count lands before submitting. Pad with owned basic lands if non-basic options are scarce — basics are always allowed in unlimited quantity.`;
 }

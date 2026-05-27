@@ -22,6 +22,7 @@ import {
 } from '../deck-preferences';
 import { getDisplayName, nameKey } from '../scryfall';
 import { COLOR_NAMES, formatColorIdentity } from './color-utils';
+import type { OwnedEntry } from '../deck-validation';
 
 const MAX_MAINBOARD_LANDS: Record<FormatId, number> = {
   commander: 40,
@@ -30,6 +31,27 @@ const MAX_MAINBOARD_LANDS: Record<FormatId, number> = {
   pioneer: 26,
   pauper: 26,
 };
+
+const BASIC_BY_COLOR: Record<string, string> = {
+  W: "plains",
+  U: "island",
+  B: "swamp",
+  R: "mountain",
+  G: "forest",
+};
+
+/** Minimum land count for a deck — used both as a backfill target and as a safety floor. */
+export function minLandsFor(
+  format: FormatId,
+  prefs?: DeckBuildPreferences,
+): number {
+  if (prefs?.landsTarget && prefs.landsTarget > 0) return prefs.landsTarget;
+  if (format === "commander") {
+    // High-power decks can run as low as 30 if they have heavy fast-mana.
+    return prefs?.powerLevel === "high" ? 30 : 35;
+  }
+  return 22;
+}
 
 export function trimDeckToCollection(
   deck: BuiltDeck,
@@ -120,28 +142,38 @@ export function trimDeckToCollection(
   let trimmedMainboard = clampLines(deck.mainboard, "mainboard");
   let trimmedSideboard = clampLines(deck.sideboard, "sideboard");
 
+  const filterLines = (
+    lines: DeckCardLine[],
+    zone: string,
+    keep: (card: ScryfallCard) => string | null,
+  ): DeckCardLine[] => {
+    const kept: DeckCardLine[] = [];
+    for (const line of lines) {
+      const ownedEntry = owned.get(nameKey(line.name));
+      if (!ownedEntry) {
+        kept.push(line);
+        continue;
+      }
+      const reason = keep(ownedEntry.card);
+      if (reason) {
+        adjustments.push(
+          `Dropped ${getDisplayName(ownedEntry.card)} from ${zone} — ${reason}.`,
+        );
+      } else {
+        kept.push(line);
+      }
+    }
+    return kept;
+  };
+
   // Hard filter against the user's color preference (applies to all formats).
   if (prefColors.length) {
-    const filterByPref = (lines: DeckCardLine[], zone: string) => {
-      const kept: DeckCardLine[] = [];
-      for (const line of lines) {
-        const ownedEntry = owned.get(nameKey(line.name));
-        if (!ownedEntry) {
-          kept.push(line);
-          continue;
-        }
-        if (cardMeetsColorIdentity(ownedEntry.card, prefColors)) {
-          kept.push(line);
-        } else {
-          adjustments.push(
-            `Dropped ${getDisplayName(ownedEntry.card)} from ${zone} — outside requested colors ${formatColorIdentity(prefColors)}.`,
-          );
-        }
-      }
-      return kept;
-    };
-    trimmedMainboard = filterByPref(trimmedMainboard, "mainboard");
-    trimmedSideboard = filterByPref(trimmedSideboard, "sideboard");
+    const colorReason = (card: ScryfallCard) =>
+      cardMeetsColorIdentity(card, prefColors)
+        ? null
+        : `outside requested colors ${formatColorIdentity(prefColors)}`;
+    trimmedMainboard = filterLines(trimmedMainboard, "mainboard", colorReason);
+    trimmedSideboard = filterLines(trimmedSideboard, "sideboard", colorReason);
 
     if (commanderCard) {
       const commanderIdentity = new Set(commanderCard.color_identity ?? []);
@@ -171,26 +203,12 @@ export function trimDeckToCollection(
   // Hard filter color identity violations for Commander.
   if (deck.format === "commander" && commanderCard) {
     const commanderColors = commanderCard.color_identity ?? [];
-    const filterByColor = (lines: DeckCardLine[], zone: string) => {
-      const kept: DeckCardLine[] = [];
-      for (const line of lines) {
-        const ownedEntry = owned.get(nameKey(line.name));
-        if (!ownedEntry) {
-          kept.push(line);
-          continue;
-        }
-        if (cardMeetsColorIdentity(ownedEntry.card, commanderColors)) {
-          kept.push(line);
-        } else {
-          adjustments.push(
-            `Dropped ${getDisplayName(ownedEntry.card)} from ${zone} — outside commander color identity ${formatColorIdentity(commanderColors)}.`,
-          );
-        }
-      }
-      return kept;
-    };
-    trimmedMainboard = filterByColor(trimmedMainboard, "mainboard");
-    trimmedSideboard = filterByColor(trimmedSideboard, "sideboard");
+    const reason = (card: ScryfallCard) =>
+      cardMeetsColorIdentity(card, commanderColors)
+        ? null
+        : `outside commander color identity ${formatColorIdentity(commanderColors)}`;
+    trimmedMainboard = filterLines(trimmedMainboard, "mainboard", reason);
+    trimmedSideboard = filterLines(trimmedSideboard, "sideboard", reason);
 
     // Flag if the deck only uses some of the commander's colors.
     if (commanderColors.length >= 2) {
@@ -222,35 +240,19 @@ export function trimDeckToCollection(
     houseRules.noExtraTurns;
 
   if (avoidKeys.size || enforceHouseRules) {
-    const filterByPrefs = (lines: DeckCardLine[], zone: string) => {
-      const kept: DeckCardLine[] = [];
-      for (const line of lines) {
-        const ownedEntry = owned.get(nameKey(line.name));
-        if (!ownedEntry) {
-          kept.push(line);
-          continue;
-        }
-        const display = getDisplayName(ownedEntry.card);
-        if (avoidKeys.size && isNameAvoided(display, avoidKeys)) {
-          adjustments.push(`Dropped ${display} from ${zone} — on user ban list.`);
-          continue;
-        }
-        if (enforceHouseRules) {
-          const violation = cardViolatesHouseRules(ownedEntry.card, houseRules);
-          if (violation) {
-            adjustments.push(
-              `Dropped ${display} from ${zone} — violates house rule (${violation}).`,
-            );
-            continue;
-          }
-        }
-        kept.push(line);
+    const reason = (card: ScryfallCard) => {
+      const display = getDisplayName(card);
+      if (avoidKeys.size && isNameAvoided(display, avoidKeys)) {
+        return "on user ban list";
       }
-      return kept;
+      if (enforceHouseRules) {
+        const violation = cardViolatesHouseRules(card, houseRules);
+        if (violation) return `violates house rule (${violation})`;
+      }
+      return null;
     };
-
-    trimmedMainboard = filterByPrefs(trimmedMainboard, "mainboard");
-    trimmedSideboard = filterByPrefs(trimmedSideboard, "sideboard");
+    trimmedMainboard = filterLines(trimmedMainboard, "mainboard", reason);
+    trimmedSideboard = filterLines(trimmedSideboard, "sideboard", reason);
 
     if (commander && commanderCard) {
       const display = getDisplayName(commanderCard);
@@ -373,55 +375,137 @@ export function trimDeckToCollection(
     mainCount = sumQty(trimmedMainboard);
   }
 
+  const countLands = () =>
+    countLandsInLines(trimmedMainboard, (line) =>
+      owned.get(nameKey(line.name))?.card ?? null,
+    );
+
+  /**
+   * Ordered list of basic-land "buckets" we'll round-robin when adding lands.
+   * For Commander we follow the commander's color identity; otherwise the
+   * user's color pref; otherwise whatever basics they own.
+   */
+  const basicBuckets = (): Array<{ card: ScryfallCard; entry: OwnedEntry }> => {
+    const seen = new Set<string>();
+    const allBasics = [...owned.values()]
+      .filter(({ card }) => {
+        if (!isBasicLand(getDisplayName(card))) return false;
+        if (seen.has(card.id)) return false;
+        seen.add(card.id);
+        return true;
+      });
+
+    // Color priority: commander identity > user color preference >
+    // colors already represented by basics in the in-progress deck.
+    // The last fallback matters when the trim is run with no color hints
+    // (tests, ad-hoc tools) — we still want to mirror what the AI shipped
+    // rather than randomly adding Plains to a mono-red deck.
+    const basicsAlreadyInDeck = new Set<string>();
+    for (const line of trimmedMainboard) {
+      const nameLower = nameKey(line.name);
+      for (const [color, basicName] of Object.entries(BASIC_BY_COLOR)) {
+        if (nameLower === basicName || nameLower === `snow-covered ${basicName}`) {
+          basicsAlreadyInDeck.add(color);
+        }
+      }
+    }
+    const targetColors =
+      deck.format === "commander" && commanderCard
+        ? commanderCard.color_identity ?? []
+        : prefColors.length
+          ? prefColors
+          : [...basicsAlreadyInDeck];
+
+    if (targetColors.length) {
+      // Round-robin order: split evenly across the requested colors so a
+      // 2-color deck doesn't end up with 22 Forests.
+      const byColor = new Map<string, OwnedEntry>();
+      for (const entry of allBasics) {
+        const name = nameKey(getDisplayName(entry.card));
+        for (const [color, basicName] of Object.entries(BASIC_BY_COLOR)) {
+          if (!targetColors.includes(color)) continue;
+          if (name === basicName || name === `snow-covered ${basicName}`) {
+            byColor.set(color, entry);
+          }
+        }
+      }
+      const ordered: Array<{ card: ScryfallCard; entry: OwnedEntry }> = [];
+      for (const color of targetColors) {
+        const entry = byColor.get(color);
+        if (entry) ordered.push({ card: entry.card, entry });
+      }
+      if (ordered.length) return ordered;
+    }
+
+    return allBasics
+      .sort((a, b) => b.qty - a.qty)
+      .map((entry) => ({ card: entry.card, entry }));
+  };
+
+  /** Add up to `requested` basics, round-robin across buckets so colors stay even. */
+  const addBasics = (requested: number): number => {
+    const buckets = basicBuckets();
+    if (!buckets.length || requested <= 0) return 0;
+    const usedFromBucket = new Map<string, number>();
+    let added = 0;
+    let exhaustedBuckets = 0;
+    while (added < requested && exhaustedBuckets < buckets.length) {
+      exhaustedBuckets = 0;
+      for (const bucket of buckets) {
+        if (added >= requested) break;
+        const display = getDisplayName(bucket.card);
+        const displayKey = nameKey(display);
+        const existing = trimmedMainboard.find(
+          (l) => nameKey(l.name) === displayKey,
+        );
+        const usedByDeck = existing?.quantity ?? 0;
+        const usedTotal = usedFromBucket.get(displayKey) ?? usedByDeck;
+        if (usedTotal >= bucket.entry.qty) {
+          exhaustedBuckets++;
+          continue;
+        }
+        if (existing) existing.quantity += 1;
+        else
+          trimmedMainboard.push({
+            name: display,
+            quantity: 1,
+            reason: "Mana fixer added to keep the mana base playable.",
+            scryfallId: bucket.card.id,
+          });
+        usedFromBucket.set(displayKey, usedTotal + 1);
+        added++;
+      }
+    }
+    return added;
+  };
+
+  /** Cut up to `count` quantities of the lowest-importance non-land spells. */
+  const cutNonLandSpells = (count: number): number => {
+    if (count <= 0) return 0;
+    const scored = trimmedMainboard
+      .map((line, idx) => ({ idx, line, ...importanceScore(line, idx) }))
+      .filter((s) => !s.isLand)
+      .sort((a, b) => a.score - b.score);
+    let cut = 0;
+    for (const item of scored) {
+      if (cut >= count) break;
+      const current = trimmedMainboard[item.idx].quantity;
+      if (current <= 0) continue;
+      const take = Math.min(count - cut, current);
+      trimmedMainboard[item.idx].quantity -= take;
+      cut += take;
+    }
+    trimmedMainboard = trimmedMainboard.filter((l) => l.quantity > 0);
+    return cut;
+  };
+
   // Mainboard: backfill with owned basics only up to a sane land cap — never pad
   // to 60/99 with basics when collection/color/budget filters removed most spells.
   if (mainCount < targetMain) {
     const need = targetMain - mainCount;
     const maxLands = MAX_MAINBOARD_LANDS[deck.format];
-    const countLands = () =>
-      countLandsInLines(trimmedMainboard, (line) =>
-        owned.get(nameKey(line.name))?.card ?? null,
-      );
     const landHeadroom = Math.max(0, maxLands - countLands());
-    const basicsBudget = Math.min(need, landHeadroom);
-
-    // owned indexes each card under multiple aliases — dedupe by card id.
-    const seenBasic = new Set<string>();
-    const basics = [...owned.values()]
-      .filter(({ card }) => {
-        if (!isBasicLand(getDisplayName(card))) return false;
-        if (seenBasic.has(card.id)) return false;
-        seenBasic.add(card.id);
-        return true;
-      })
-      .sort((a, b) => b.qty - a.qty);
-
-    let remaining = basicsBudget;
-    let basicsAdded = 0;
-    for (const basic of basics) {
-      if (remaining <= 0) break;
-      const display = getDisplayName(basic.card);
-      const displayKey = nameKey(display);
-      const existing = trimmedMainboard.find(
-        (l) => nameKey(l.name) === displayKey,
-      );
-      const used = existing?.quantity ?? 0;
-      const headroom = basic.qty - used;
-      if (headroom <= 0) continue;
-      const add = Math.min(headroom, remaining);
-      if (existing) {
-        existing.quantity += add;
-      } else {
-        trimmedMainboard.push({
-          name: display,
-          quantity: add,
-          reason: "Mana fixer added to meet the deck size requirement.",
-          scryfallId: basic.card.id,
-        });
-      }
-      basicsAdded += add;
-      remaining -= add;
-    }
+    const basicsAdded = addBasics(Math.min(need, landHeadroom));
 
     mainCount = sumQty(trimmedMainboard);
     const stillShort = targetMain - mainCount;
@@ -431,16 +515,31 @@ export function trimDeckToCollection(
         `Mainboard was ${need} card${need === 1 ? "" : "s"} short; added ${basicsAdded} owned basic land${basicsAdded === 1 ? "" : "s"} (land cap ${maxLands}).`,
       );
     }
-    if (remaining > 0 && basicsAdded < basicsBudget) {
-      adjustments.push(
-        `Could not add ${remaining} more basic land${remaining === 1 ? "" : "s"} — not enough owned basics.`,
-      );
-    }
     if (stillShort > 0) {
       adjustments.push(
         `⚠️ DECK INCOMPLETE: Mainboard is ${stillShort} card${stillShort === 1 ? "" : "s"} short of ${targetMain} (${mainCount} cards, ${countLands()} lands). After collection, color, and budget filters there are not enough legal non-land cards to fill the list — basics backfill stops at ${maxLands} lands so the deck stays playable. Widen your color selection or raise the budget cap, then rebuild.`,
       );
     }
+  }
+
+  // Land floor: even if the AI hit the card count, force a sane land base.
+  // Cuts the lowest-importance non-land spells and swaps them for owned basics.
+  const minLands = minLandsFor(deck.format, brewPrefs);
+  const currentLands = countLands();
+  if (currentLands < minLands) {
+    const landDeficit = minLands - currentLands;
+    const cut = cutNonLandSpells(landDeficit);
+    const added = addBasics(cut);
+    if (added > 0) {
+      adjustments.push(
+        `Land floor enforced: AI shipped ${currentLands} lands (need ≥${minLands}). Swapped ${added} of the lowest-impact spell${added === 1 ? "" : "s"} for owned basics.`,
+      );
+    } else if (cut > 0) {
+      adjustments.push(
+        `⚠️ Only ${currentLands} lands and no owned basics available to backfill. Add basic lands to your collection to fix the mana base.`,
+      );
+    }
+    mainCount = sumQty(trimmedMainboard);
   }
 
   // Sideboard: enforce max.

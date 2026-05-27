@@ -18,6 +18,8 @@ export function DeckStatsPanel({
   landWarnings,
   powerLevel,
   powerComparison,
+  onRebuildForPower,
+  rebuilding,
   deckValueUsd,
   colorIdentity,
 }: {
@@ -25,6 +27,8 @@ export function DeckStatsPanel({
   landWarnings: string[];
   powerLevel: PowerLevelResult | null;
   powerComparison?: PowerTargetComparison | null;
+  onRebuildForPower?: () => void;
+  rebuilding?: boolean;
   deckValueUsd: number;
   colorIdentity?: string[];
 }) {
@@ -145,6 +149,16 @@ export function DeckStatsPanel({
           <p className="mt-1 text-sm leading-relaxed text-stone-200/95">
             {powerComparison.message}
           </p>
+          {powerComparison.status !== "match" && onRebuildForPower && (
+            <button
+              type="button"
+              disabled={rebuilding}
+              onClick={onRebuildForPower}
+              className="mt-3 w-full rounded-lg bg-amber-600 px-3 py-2 text-sm font-bold text-stone-950 disabled:opacity-50"
+            >
+              {rebuilding ? "Rebuilding…" : "Rebuild toward target power"}
+            </button>
+          )}
         </div>
       )}
 

@@ -49,6 +49,8 @@ interface DeckDisplayProps {
     name: string,
     zone: "mainboard" | "sideboard" | "commander",
   ) => void;
+  onRebuildForPower?: () => void;
+  rebuilding?: boolean;
 }
 
 function manaClass(inner: string): string {
@@ -183,6 +185,12 @@ function CardRow({
   );
 }
 
+const INFO_PALETTE = {
+  amber: { box: "bg-amber-950/30 ring-amber-700/40", head: "text-amber-300", bullet: "text-amber-500/80" },
+  emerald: { box: "bg-emerald-950/30 ring-emerald-800/40", head: "text-emerald-300", bullet: "text-emerald-400/80" },
+  rose: { box: "bg-rose-950/30 ring-rose-800/40", head: "text-rose-300", bullet: "text-rose-400/80" },
+} as const;
+
 function InfoList({
   title,
   icon,
@@ -192,41 +200,19 @@ function InfoList({
   title: string;
   icon: string;
   items: string[];
-  accent: "amber" | "emerald" | "rose";
+  accent: keyof typeof INFO_PALETTE;
 }) {
-  const palette = {
-    amber: {
-      ring: "ring-amber-700/40",
-      bg: "bg-amber-950/30",
-      head: "text-amber-300",
-      bullet: "text-amber-500/80",
-    },
-    emerald: {
-      ring: "ring-emerald-800/40",
-      bg: "bg-emerald-950/30",
-      head: "text-emerald-300",
-      bullet: "text-emerald-400/80",
-    },
-    rose: {
-      ring: "ring-rose-800/40",
-      bg: "bg-rose-950/30",
-      head: "text-rose-300",
-      bullet: "text-rose-400/80",
-    },
-  }[accent];
-
+  const p = INFO_PALETTE[accent];
   return (
-    <div className={`rounded-2xl ${palette.bg} p-4 ring-1 ${palette.ring}`}>
-      <p
-        className={`mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] ${palette.head}`}
-      >
+    <div className={`rounded-2xl ${p.box} p-4 ring-1`}>
+      <p className={`mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] ${p.head}`}>
         <span className="text-sm">{icon}</span>
         {title}
       </p>
       <ul className="space-y-1.5 text-sm leading-snug text-stone-200/90">
         {items.map((item, i) => (
           <li key={`${i}-${item}`} className="flex gap-2">
-            <span className={`mt-1 shrink-0 ${palette.bullet}`}>•</span>
+            <span className={`mt-1 shrink-0 ${p.bullet}`}>•</span>
             <span>{item}</span>
           </li>
         ))}
@@ -307,8 +293,101 @@ function GroupedSection({
   );
 }
 
-function copyText(text: string) {
-  void navigator.clipboard.writeText(text);
+const EXPORT_OPTIONS: Array<[ExportFormat, string]> = [
+  ["moxfield", "Copy Moxfield"],
+  ["archidekt", "Copy Archidekt"],
+  ["mtga", "Copy MTGA"],
+  ["plain", "Copy plain"],
+];
+
+function ExportButtons({ deck }: { deck: BuiltDeck }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {EXPORT_OPTIONS.map(([fmt, label]) => (
+        <button
+          key={fmt}
+          type="button"
+          onClick={() => navigator.clipboard.writeText(exportDeck(deck, fmt))}
+          className="card-hover rounded-lg bg-stone-900/60 px-3 py-1.5 text-xs font-semibold text-amber-200/90 ring-1 ring-stone-700/60 hover:text-amber-100"
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DeckHeader({
+  deck,
+  validation,
+  commanderIdentity,
+}: {
+  deck: BuiltDeck;
+  validation?: { valid: boolean };
+  commanderIdentity: string[];
+}) {
+  const hasInfo =
+    deck.winConditions?.length ||
+    deck.strengths?.length ||
+    deck.weaknesses?.length;
+  return (
+    <header className="glass-panel relative overflow-hidden rounded-3xl p-6 sm:p-8">
+      <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-amber-500/15 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-20 -left-20 h-56 w-56 rounded-full bg-purple-500/10 blur-3xl" />
+      <div className="relative space-y-4">
+        <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.25em]">
+          <span className="text-amber-500/80">Brewed deck</span>
+          {deck.archetype && (
+            <span className="rounded-full border border-amber-700/40 bg-amber-950/40 px-3 py-0.5 text-amber-300/90">
+              {deck.archetype}
+            </span>
+          )}
+          <span className="rounded-full border border-stone-700/60 bg-stone-900/60 px-3 py-0.5 text-stone-400">
+            {deck.format}
+          </span>
+          {commanderIdentity.length > 0 && (
+            <ManaIdentityBadge colors={commanderIdentity} />
+          )}
+        </div>
+        <h2 className="shimmer-text text-3xl font-black tracking-tight sm:text-4xl">
+          {deck.name}
+        </h2>
+        <p className="text-stone-300/90 sm:text-lg">{deck.description}</p>
+        {deck.commander && (
+          <p className="text-sm text-amber-300/90">
+            <span className="font-semibold uppercase tracking-[0.15em] text-amber-500/80">
+              Commander:
+            </span>{" "}
+            <span className="font-semibold text-amber-100">{deck.commander}</span>
+          </p>
+        )}
+        {deck.overview && (
+          <div className="rounded-2xl border border-amber-900/30 bg-stone-950/40 p-4 text-sm leading-relaxed text-stone-200/95 sm:text-base">
+            {deck.overview}
+          </div>
+        )}
+        {hasInfo && (
+          <div className="grid gap-3 sm:grid-cols-3">
+            {deck.winConditions && deck.winConditions.length > 0 && (
+              <InfoList title="Win conditions" icon="🏆" items={deck.winConditions} accent="amber" />
+            )}
+            {deck.strengths && deck.strengths.length > 0 && (
+              <InfoList title="Strengths" icon="💪" items={deck.strengths} accent="emerald" />
+            )}
+            {deck.weaknesses && deck.weaknesses.length > 0 && (
+              <InfoList title="Weaknesses" icon="⚠" items={deck.weaknesses} accent="rose" />
+            )}
+          </div>
+        )}
+        {validation?.valid && (
+          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-700/40 bg-emerald-950/50 px-4 py-1.5 text-sm font-medium text-emerald-300">
+            <span className="text-base">✓</span>
+            Legal & playable from your collection
+          </div>
+        )}
+      </div>
+    </header>
+  );
 }
 
 export function DeckDisplay({
@@ -320,6 +399,8 @@ export function DeckDisplay({
   targetPowerLevel,
   onQuantityChange,
   onRemoveCard,
+  onRebuildForPower,
+  rebuilding,
 }: DeckDisplayProps) {
   const mainboard: EnrichedLine[] =
     enriched?.mainboard ?? deck.mainboard.map((l) => ({ ...l, card: null }));
@@ -352,115 +433,26 @@ export function DeckDisplay({
   const commanderIdentity =
     commanderCard?.color_identity ?? [];
 
-  const handleExport = (format: ExportFormat) => {
-    const text = exportDeck(deck, format);
-    copyText(text);
-  };
-
   return (
     <div className="space-y-10">
-      <header className="glass-panel relative overflow-hidden rounded-3xl p-6 sm:p-8">
-        <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-amber-500/15 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-20 -left-20 h-56 w-56 rounded-full bg-purple-500/10 blur-3xl" />
-        <div className="relative space-y-4">
-          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.25em]">
-            <span className="text-amber-500/80">Brewed deck</span>
-            {deck.archetype && (
-              <span className="rounded-full border border-amber-700/40 bg-amber-950/40 px-3 py-0.5 text-amber-300/90">
-                {deck.archetype}
-              </span>
-            )}
-            <span className="rounded-full border border-stone-700/60 bg-stone-900/60 px-3 py-0.5 text-stone-400">
-              {deck.format}
-            </span>
-            {commanderIdentity.length > 0 && (
-              <ManaIdentityBadge colors={commanderIdentity} />
-            )}
-          </div>
-          <h2 className="shimmer-text text-3xl font-black tracking-tight sm:text-4xl">
-            {deck.name}
-          </h2>
-          <p className="text-stone-300/90 sm:text-lg">{deck.description}</p>
-          {deck.commander && (
-            <p className="text-sm text-amber-300/90">
-              <span className="font-semibold uppercase tracking-[0.15em] text-amber-500/80">
-                Commander:
-              </span>{" "}
-              <span className="font-semibold text-amber-100">{deck.commander}</span>
-            </p>
-          )}
-          {deck.overview && (
-            <div className="rounded-2xl border border-amber-900/30 bg-stone-950/40 p-4 text-sm leading-relaxed text-stone-200/95 sm:text-base">
-              {deck.overview}
-            </div>
-          )}
-          {(deck.winConditions?.length ||
-            deck.strengths?.length ||
-            deck.weaknesses?.length) && (
-            <div className="grid gap-3 sm:grid-cols-3">
-              {deck.winConditions && deck.winConditions.length > 0 && (
-                <InfoList
-                  title="Win conditions"
-                  icon="🏆"
-                  items={deck.winConditions}
-                  accent="amber"
-                />
-              )}
-              {deck.strengths && deck.strengths.length > 0 && (
-                <InfoList
-                  title="Strengths"
-                  icon="💪"
-                  items={deck.strengths}
-                  accent="emerald"
-                />
-              )}
-              {deck.weaknesses && deck.weaknesses.length > 0 && (
-                <InfoList
-                  title="Weaknesses"
-                  icon="⚠"
-                  items={deck.weaknesses}
-                  accent="rose"
-                />
-              )}
-            </div>
-          )}
-          {validation?.valid && (
-            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-700/40 bg-emerald-950/50 px-4 py-1.5 text-sm font-medium text-emerald-300">
-              <span className="text-base">✓</span>
-              Legal & playable from your collection
-            </div>
-          )}
-        </div>
-      </header>
+      <DeckHeader
+        deck={deck}
+        validation={validation}
+        commanderIdentity={commanderIdentity}
+      />
 
       <DeckStatsPanel
         stats={stats}
         landWarnings={landWarnings}
         powerLevel={powerLevel}
         powerComparison={powerComparison}
+        onRebuildForPower={onRebuildForPower}
+        rebuilding={rebuilding}
         deckValueUsd={deckValue}
         colorIdentity={commanderIdentity}
       />
 
-      <div className="flex flex-wrap gap-2">
-        {(
-          [
-            ["moxfield", "Copy Moxfield"],
-            ["archidekt", "Copy Archidekt"],
-            ["mtga", "Copy MTGA"],
-            ["plain", "Copy plain"],
-          ] as const
-        ).map(([fmt, label]) => (
-          <button
-            key={fmt}
-            type="button"
-            onClick={() => handleExport(fmt)}
-            className="card-hover rounded-lg bg-stone-900/60 px-3 py-1.5 text-xs font-semibold text-amber-200/90 ring-1 ring-stone-700/60 hover:text-amber-100"
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <ExportButtons deck={deck} />
 
       <div className="glass-panel relative overflow-hidden rounded-2xl p-6">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-500/60 to-transparent" />
