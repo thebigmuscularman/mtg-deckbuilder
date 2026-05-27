@@ -31,9 +31,12 @@ ${formatRulesPrompt(format, landsTargetOverride)}
 
 Design principles:
 - Include a coherent game plan (aggro, control, midrange, combo, etc.)
+- READ THE ORACLE TEXT. Every card in the collection list below shows its mana cost, type, P/T, keywords, and a condensed oracle text. Use that data — do not pick cards from memory of names alone. Compare candidates: a card that "draws 2 cards" beats a card that "draws 1 card" for the same cost. A 4/4 for 3 beats a 2/2 for 3. Spells that do MORE per mana spent are stronger; pick the most efficient option for each role.
+- BUILD AROUND SYNERGIES. After picking your commander or core strategy, scan the oracle text of EVERY listed card and pull out cards that explicitly reinforce the plan: tribal lords for a tribal deck, sacrifice payoffs for a sac deck, +1/+1 counter payoffs for a counters deck, reanimation targets for a reanimator deck, etc. Filler is the enemy — every slot should either advance the plan or answer the opponents.
+- AVOID FILLER. A "vanilla" 2/2 for 2 with no abilities is almost never correct over a 2-drop with relevant text. If a card's oracle text is empty or generic, it had better be a key role-player (mana, removal, finisher) or the slot is wasted.
+- INTERACTION IS NOT OPTIONAL. Commander needs ~10–14 removal/counter/wipe pieces; 60-card formats need ~6–10. A deck with 0 removal will lose to the first threat it can't block. Pick the most efficient interaction the collection offers (Swords to Plowshares > Murder; Counterspell > Cancel; Wrath of God > Volcanic Fallout in most decks).
 - Build a real mana base. The deck MUST hit the minimum land count for the format (see format rules below). When in doubt, ADD MORE LANDS. A deck with 6–15 lands is broken; do not ship it. Basic lands are unlimited — always backfill with basics if non-basic lands are scarce in the collection.
-- Build a real mana curve. Each card in the collection lists its converted mana cost (e.g. "cmc 3"). Use those numbers — follow the curve target in the format rules below. The deck must have meaningful plays at 1–2 mana, a healthy two/three-drop core, and only a few cards above 5 mana. A list that's all 4-plus drops or all 1-drops will lose every game.
-- Include removal, card draw, or interaction where the format expects it
+- Build a real mana curve. Each card lists its converted mana cost. Follow the curve target in the format rules below. The deck must have meaningful plays at 1–2 mana, a healthy two/three-drop core, and only a few cards above 5 mana. A list that's all 4-plus drops or all 1-drops will lose every game.
 - For Commander: pick the best commander from the collection for the available card pool; explain the synergy
 - For 60-card formats: target exactly 60 mainboard cards; sideboard 0-15 if useful
 - Use exact English card names as they appear on Scryfall

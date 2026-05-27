@@ -11,6 +11,12 @@ type PromptCard = {
   typeLine: string;
   identity: string[];
   cmc: number;
+  manaCost?: string;
+  oracleText?: string;
+  keywords?: string[];
+  power?: string;
+  toughness?: string;
+  rarity?: string;
   card: ScryfallCard;
 };
 
@@ -28,13 +34,20 @@ function gatherPromptCards(
     seen.add(entry.card.id);
     const name = getDisplayName(entry.card);
     const formatMax = isBasicLand(name) ? 99 : formatRules.maxCopies(entry.card);
+    const card = entry.card;
     out.push({
       name,
       quantity: Math.min(entry.qty, formatMax),
-      typeLine: entry.card.type_line,
-      identity: sortWubrg(entry.card.color_identity ?? []),
-      cmc: Math.max(0, entry.card.cmc ?? 0),
-      card: entry.card,
+      typeLine: card.type_line,
+      identity: sortWubrg(card.color_identity ?? []),
+      cmc: Math.max(0, card.cmc ?? 0),
+      manaCost: card.mana_cost,
+      oracleText: card.oracle_text ?? card.card_faces?.[0]?.oracle_text,
+      keywords: card.keywords,
+      power: card.power,
+      toughness: card.toughness,
+      rarity: card.rarity,
+      card,
     });
   }
   return out;
@@ -63,6 +76,12 @@ export function buildCollectionContext(
       typeLine: c.typeLine,
       colors: [colorOverride ?? colorTag(c.identity)],
       cmc: c.cmc,
+      manaCost: c.manaCost,
+      oracleText: c.oracleText,
+      keywords: c.keywords,
+      power: c.power,
+      toughness: c.toughness,
+      rarity: c.rarity,
     });
 
     if (multi.length) {
@@ -91,6 +110,12 @@ export function buildCollectionContext(
       typeLine: c.typeLine,
       colors: [colorTag(c.identity)],
       cmc: c.cmc,
+      manaCost: c.manaCost,
+      oracleText: c.oracleText,
+      keywords: c.keywords,
+      power: c.power,
+      toughness: c.toughness,
+      rarity: c.rarity,
     })),
   );
 }

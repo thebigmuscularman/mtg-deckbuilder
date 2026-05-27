@@ -136,32 +136,73 @@ function mergeDuplicates(entries: CollectionEntry[]): CollectionEntry[] {
   return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function collectionToPromptList(
-  entries: Array<{
-    name: string;
-    quantity: number;
-    typeLine?: string;
-    colors?: string[];
-    cmc?: number;
-  }>,
-): string {
-  return entries
-    .map((e) => {
-      // CMC is the single biggest factor in mana-curve quality and the AI was
-      // previously blind to it — costs are listed up-front so the model can
-      // actually shape a curve instead of guessing.
-      const cmcTag =
-        typeof e.cmc === "number" && Number.isFinite(e.cmc)
-          ? `cmc ${e.cmc}`
-          : null;
-      const meta = [
-        cmcTag,
-        e.typeLine,
-        e.colors?.length ? `[${e.colors.join("")}]` : null,
-      ]
-        .filter(Boolean)
-        .join(" ");
-      return `- ${e.quantity}x ${e.name}${meta ? ` (${meta})` : ""}`;
-    })
-    .join("\n");
+export type PromptListEntry = {
+  name: string;
+  quantity: number;
+  typeLine?: string;
+  colors?: string[];
+  cmc?: number;
+  /** Raw mana cost like "{2}{R}{R}" — informs colored-mana requirements. */
+  manaCost?: string;
+  oracleText?: string;
+  /** e.g. ["Flying", "Vigilance"] — a cheap card-shape signal. */
+  keywords?: string[];
+  power?: string;
+  toughness?: string;
+  /** "common" | "uncommon" | "rare" | "mythic" — informs card power. */
+  rarity?: string;
+};
+
+const ORACLE_TRUNCATE = 160;
+
+/**
+ * Squash oracle text into a single short line. Newlines and reminder text
+ * (parenthetical) waste tokens; the AI only needs the gist.
+ */
+function condenseOracle(text: string): string {
+  const stripped = text
+    .replace(/\([^)]*\)/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (stripped.length <= ORACLE_TRUNCATE) return stripped;
+  return `${stripped.slice(0, ORACLE_TRUNCATE - 1).trimEnd()}…`;
+}
+
+/**
+ * Format a single owned card for the AI prompt. Includes the data the model
+ * actually needs to evaluate a card's power: mana cost (for colored
+ * requirements, not just CMC), oracle text (truncated), P/T for creatures,
+ * and rarity as a coarse strength signal. Before this richer encoding the
+ * AI was picking cards purely from name recall, which produced consistently
+ * weak decks.
+ */
+export function formatPromptCardLine(e: PromptListEntry): string {
+  const cmcTag =
+    typeof e.cmc === "number" && Number.isFinite(e.cmc) ? `cmc ${e.cmc}` : null;
+  const costTag = e.manaCost && e.manaCost.length <= 24 ? e.manaCost : null;
+  const colorTagStr = e.colors?.length ? `[${e.colors.join("")}]` : null;
+  const ptTag =
+    e.power !== undefined && e.toughness !== undefined
+      ? `${e.power}/${e.toughness}`
+      : null;
+  const rarityTag =
+    e.rarity && e.rarity !== "common" ? e.rarity.toUpperCase()[0] : null;
+  const head = [costTag, cmcTag, e.typeLine, ptTag, colorTagStr, rarityTag]
+    .filter(Boolean)
+    .join(" ");
+
+  let body = "";
+  const kw = e.keywords?.filter((k) => k && k.length).slice(0, 6) ?? [];
+  if (kw.length) body += ` ${kw.join(", ")}.`;
+  if (e.oracleText) {
+    const oracle = condenseOracle(e.oracleText);
+    if (oracle) body += ` ${oracle}`;
+  }
+  body = body.replace(/\s+/g, " ").trim();
+
+  return `- ${e.quantity}x ${e.name}${head ? ` (${head})` : ""}${body ? ` — ${body}` : ""}`;
+}
+
+export function collectionToPromptList(entries: PromptListEntry[]): string {
+  return entries.map(formatPromptCardLine).join("\n");
 }
