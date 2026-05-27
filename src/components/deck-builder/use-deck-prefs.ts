@@ -85,21 +85,14 @@ export function useDeckPrefs(): DeckPrefsApi {
   const [landsTarget, setLandsTarget] = useState(DEFAULTS.landsTarget);
   const [theme, setTheme] = useState<"dark" | "light">(DEFAULTS.theme);
 
+  // Only the UI theme persists across sessions. Deck-build form values
+  // (format, colors, strategy, power level, etc.) start fresh every page
+  // load — users found it confusing to land on the Brew step pre-filled
+  // from a previous build. Use "Save playgroup preset" to opt into
+  // recallable settings.
   useEffect(() => {
-    /* eslint-disable react-hooks/set-state-in-effect -- restore from localStorage */
+    /* eslint-disable react-hooks/set-state-in-effect -- restore theme from localStorage */
     const p = loadPrefs();
-    if (p.format) setFormat(p.format);
-    if (p.colors?.length) setColors(p.colors as Color[]);
-    if (p.strategy) setStrategy(p.strategy);
-    if (p.budgetMax) setBudgetMax(p.budgetMax);
-    if (isPowerLevelId(p.powerLevel)) setPowerLevel(p.powerLevel);
-    if (p.avoidList !== undefined) setAvoidList(p.avoidList);
-    if (p.houseRules) setHouseRules(p.houseRules);
-    if (p.politicsFriendly) setPoliticsFriendly(p.politicsFriendly);
-    if (p.allowIllegal) setAllowIllegal(p.allowIllegal);
-    if (p.interactionDensity) setInteractionDensity(p.interactionDensity);
-    if (p.gameLength) setGameLength(p.gameLength);
-    if (p.landsTarget) setLandsTarget(p.landsTarget);
     if (p.theme) setTheme(p.theme);
     setHydrated(true);
     /* eslint-enable react-hooks/set-state-in-effect */
@@ -109,37 +102,8 @@ export function useDeckPrefs(): DeckPrefsApi {
     if (!hydrated) return;
     document.documentElement.classList.remove("light", "dark");
     document.documentElement.classList.add(theme);
-    savePrefs({
-      format,
-      colors,
-      strategy,
-      budgetMax,
-      powerLevel,
-      theme,
-      avoidList,
-      houseRules,
-      politicsFriendly,
-      allowIllegal,
-      interactionDensity,
-      gameLength,
-      landsTarget: landsTarget > 0 ? landsTarget : undefined,
-    });
-  }, [
-    hydrated,
-    format,
-    colors,
-    strategy,
-    budgetMax,
-    powerLevel,
-    theme,
-    avoidList,
-    houseRules,
-    politicsFriendly,
-    allowIllegal,
-    interactionDensity,
-    gameLength,
-    landsTarget,
-  ]);
+    savePrefs({ theme });
+  }, [hydrated, theme]);
 
   const applyPreset = useCallback((p: Partial<UserPrefs>) => {
     if (p.allowIllegal !== undefined) setAllowIllegal(p.allowIllegal);

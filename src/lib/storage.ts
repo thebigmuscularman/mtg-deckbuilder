@@ -88,7 +88,7 @@ export function loadPrefs(): Partial<UserPrefs> {
   }
 }
 
-export function savePrefs(prefs: UserPrefs): void {
+export function savePrefs(prefs: Partial<UserPrefs>): void {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
