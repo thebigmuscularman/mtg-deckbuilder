@@ -137,11 +137,25 @@ function mergeDuplicates(entries: CollectionEntry[]): CollectionEntry[] {
 }
 
 export function collectionToPromptList(
-  entries: Array<{ name: string; quantity: number; typeLine?: string; colors?: string[] }>,
+  entries: Array<{
+    name: string;
+    quantity: number;
+    typeLine?: string;
+    colors?: string[];
+    cmc?: number;
+  }>,
 ): string {
   return entries
     .map((e) => {
+      // CMC is the single biggest factor in mana-curve quality and the AI was
+      // previously blind to it — costs are listed up-front so the model can
+      // actually shape a curve instead of guessing.
+      const cmcTag =
+        typeof e.cmc === "number" && Number.isFinite(e.cmc)
+          ? `cmc ${e.cmc}`
+          : null;
       const meta = [
+        cmcTag,
         e.typeLine,
         e.colors?.length ? `[${e.colors.join("")}]` : null,
       ]

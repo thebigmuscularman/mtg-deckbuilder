@@ -126,6 +126,48 @@ export function getLandWarnings(format: FormatId, stats: DeckStats): string[] {
   return [];
 }
 
+/**
+ * Diagnose a deck's mana curve. Flags the pathologies the AI tends to fall
+ * into: average CMC outside the format's healthy band, too few 1–2 mana plays,
+ * and too many 5+ mana cards. Returns user-facing warning strings.
+ */
+export function getCurveWarnings(format: FormatId, stats: DeckStats): string[] {
+  const out: string[] = [];
+  if (stats.nonLandCount < 10) return out;
+  const cmd = format === "commander";
+  const earlyDrops = stats.curve
+    .filter((b) => b.cmc <= 2)
+    .reduce((s, b) => s + b.count, 0);
+  const topHeavy = stats.curve
+    .filter((b) => b.cmc >= 5)
+    .reduce((s, b) => s + b.count, 0);
+  const earlyMin = cmd ? 14 : 10;
+  const topMax = cmd ? 16 : 8;
+  const avgMax = cmd ? 3.8 : 3.2;
+  const avgMin = cmd ? 2.2 : 1.8;
+
+  if (stats.avgCmc > avgMax) {
+    out.push(
+      `Average non-land CMC is ${stats.avgCmc.toFixed(1)} — that's slow for ${cmd ? "Commander" : format} (target ≤${avgMax.toFixed(1)}). Trim some 5+ drops for cheaper plays.`,
+    );
+  } else if (stats.avgCmc > 0 && stats.avgCmc < avgMin) {
+    out.push(
+      `Average non-land CMC is ${stats.avgCmc.toFixed(1)} — very low for ${cmd ? "Commander" : format} (target ≥${avgMin.toFixed(1)}). The deck may fizzle late.`,
+    );
+  }
+  if (earlyDrops < earlyMin) {
+    out.push(
+      `Only ${earlyDrops} card${earlyDrops === 1 ? "" : "s"} at 1–2 mana — early turns will be empty. Aim for at least ${earlyMin}.`,
+    );
+  }
+  if (topHeavy > topMax) {
+    out.push(
+      `${topHeavy} cards at 5+ mana — top-heavy curve. Aim for ≤${topMax} or you'll get stuck on lands without plays.`,
+    );
+  }
+  return out;
+}
+
 const FAST_MANA = new Set([
   "sol ring",
   "mana crypt",

@@ -10,6 +10,7 @@ type PromptCard = {
   quantity: number;
   typeLine: string;
   identity: string[];
+  cmc: number;
   card: ScryfallCard;
 };
 
@@ -32,6 +33,7 @@ function gatherPromptCards(
       quantity: Math.min(entry.qty, formatMax),
       typeLine: entry.card.type_line,
       identity: sortWubrg(entry.card.color_identity ?? []),
+      cmc: Math.max(0, entry.card.cmc ?? 0),
       card: entry.card,
     });
   }
@@ -55,45 +57,28 @@ export function buildCollectionContext(
     const colorless = filtered.filter((c) => c.identity.length === 0);
     const lines: string[] = [];
 
+    const toPromptEntry = (c: PromptCard, colorOverride?: string) => ({
+      name: c.name,
+      quantity: c.quantity,
+      typeLine: c.typeLine,
+      colors: [colorOverride ?? colorTag(c.identity)],
+      cmc: c.cmc,
+    });
+
     if (multi.length) {
       lines.push(
         `=== MULTICOLOR SIGNATURE CARDS (${multi.length}) — HIGH PRIORITY, prefer these heavily; they pay off your color commitment ===`,
       );
-      lines.push(
-        collectionToPromptList(
-          multi.map((c) => ({
-            name: c.name,
-            quantity: c.quantity,
-            typeLine: c.typeLine,
-            colors: [colorTag(c.identity)],
-          })),
-        ),
-      );
+      lines.push(collectionToPromptList(multi.map((c) => toPromptEntry(c))));
     }
     if (mono.length) {
       lines.push(`\n=== MONO-COLOR CARDS (${mono.length}) ===`);
-      lines.push(
-        collectionToPromptList(
-          mono.map((c) => ({
-            name: c.name,
-            quantity: c.quantity,
-            typeLine: c.typeLine,
-            colors: [colorTag(c.identity)],
-          })),
-        ),
-      );
+      lines.push(collectionToPromptList(mono.map((c) => toPromptEntry(c))));
     }
     if (colorless.length) {
       lines.push(`\n=== COLORLESS / ARTIFACTS (${colorless.length}) ===`);
       lines.push(
-        collectionToPromptList(
-          colorless.map((c) => ({
-            name: c.name,
-            quantity: c.quantity,
-            typeLine: c.typeLine,
-            colors: ["C"],
-          })),
-        ),
+        collectionToPromptList(colorless.map((c) => toPromptEntry(c, "C"))),
       );
     }
     return lines.join("\n");
@@ -105,6 +90,7 @@ export function buildCollectionContext(
       quantity: c.quantity,
       typeLine: c.typeLine,
       colors: [colorTag(c.identity)],
+      cmc: c.cmc,
     })),
   );
 }

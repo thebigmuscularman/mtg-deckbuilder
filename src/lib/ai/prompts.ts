@@ -29,7 +29,7 @@ ${formatRulesPrompt(format)}
 Design principles:
 - Include a coherent game plan (aggro, control, midrange, combo, etc.)
 - Build a real mana base. The deck MUST hit the minimum land count for the format (see format rules below). When in doubt, ADD MORE LANDS. A deck with 6–15 lands is broken; do not ship it. Basic lands are unlimited — always backfill with basics if non-basic lands are scarce in the collection.
-- Respect mana curve: enough lands, early plays, meaningful top-end where appropriate
+- Build a real mana curve. Each card in the collection lists its converted mana cost (e.g. "cmc 3"). Use those numbers — follow the curve target in the format rules below. The deck must have meaningful plays at 1–2 mana, a healthy two/three-drop core, and only a few cards above 5 mana. A list that's all 4-plus drops or all 1-drops will lose every game.
 - Include removal, card draw, or interaction where the format expects it
 - For Commander: pick the best commander from the collection for the available card pool; explain the synergy
 - For 60-card formats: target exactly 60 mainboard cards; sideboard 0-15 if useful

@@ -11,7 +11,7 @@ import type {
   ResolvedCollectionCard,
   ScryfallCard,
 } from '../types';
-import { countLandsInLines } from '../deck-stats';
+import { computeDeckStats, countLandsInLines, getCurveWarnings } from '../deck-stats';
 import { cardUsdPrice } from '../prices';
 import {
   buildAvoidNameKeys,
@@ -631,6 +631,16 @@ export function trimDeckToCollection(
     adjustments.push(
       `Sideboard trimmed to the ${maxSide}-card max; cut lowest-impact picks${cutList ? `: ${cutList}` : ""}.`,
     );
+  }
+
+  const curveStats = computeDeckStats(
+    trimmedMainboard.map((line) => ({
+      quantity: line.quantity,
+      card: owned.get(nameKey(line.name))?.card ?? null,
+    })),
+  );
+  for (const warning of getCurveWarnings(deck.format, curveStats)) {
+    adjustments.push(`Curve check: ${warning}`);
   }
 
   return {
