@@ -17,6 +17,10 @@ import type {
 } from "./types";
 import { countLandsInLines } from "./deck-stats";
 import { cardUsdPrice } from "./prices";
+import {
+  getPowerPromptBlock,
+  type PowerLevelId,
+} from "./power-levels";
 import { getDisplayName, nameKey } from "./scryfall";
 
 /** Max mainboard lands after trim backfill — avoids padding with basics when spells were dropped. */
@@ -666,6 +670,7 @@ function buildBaseUserMessage(
   strategyHint?: string,
   colorPref?: string[],
   maxBudgetUsd?: number,
+  powerLevel?: PowerLevelId,
 ): string {
   const prefColors = sortWubrg(
     (colorPref ?? []).filter((c) => "WUBRG".includes(c)),
@@ -726,6 +731,11 @@ The user has explicitly requested these colors: ${colorList}.
     userMessage += `\n\n*** BUDGET CAP — $${maxBudgetUsd} USD per card (Scryfall nonfoil) ***
 - Do not include any card whose typical price exceeds $${maxBudgetUsd}.
 - Prefer budget-friendly alternatives from the collection. Basic lands are always allowed.`;
+  }
+
+  const powerBlock = getPowerPromptBlock(powerLevel);
+  if (powerBlock) {
+    userMessage += `\n\n${powerBlock}`;
   }
 
   if (strategyHint?.trim()) {
@@ -876,6 +886,7 @@ export async function buildDeckWithAI(
   colorPref?: string[],
   maxBudgetUsd?: number,
   onProgress?: (event: DeckBuildProgress) => void,
+  powerLevel?: PowerLevelId,
 ): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
   const userMessage = buildBaseUserMessage(
     format,
@@ -883,6 +894,7 @@ export async function buildDeckWithAI(
     strategyHint,
     colorPref,
     maxBudgetUsd,
+    powerLevel,
   );
   const baseMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt(format) },
@@ -908,6 +920,7 @@ export async function shoreUpDeckWithAI(
   colorPref?: string[],
   maxBudgetUsd?: number,
   onProgress?: (event: DeckBuildProgress) => void,
+  powerLevel?: PowerLevelId,
 ): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
   const userMessage = buildBaseUserMessage(
     format,
@@ -915,6 +928,7 @@ export async function shoreUpDeckWithAI(
     strategyHint,
     colorPref,
     maxBudgetUsd,
+    powerLevel,
   );
   const previousJson = JSON.stringify(
     {
@@ -980,6 +994,7 @@ export async function refineDeckWithAI(
   colorPref?: string[],
   maxBudgetUsd?: number,
   onProgress?: (event: DeckBuildProgress) => void,
+  powerLevel?: PowerLevelId,
 ): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
   const userMessage = buildBaseUserMessage(
     format,
@@ -987,6 +1002,7 @@ export async function refineDeckWithAI(
     strategyHint,
     colorPref,
     maxBudgetUsd,
+    powerLevel,
   );
   const previousJson = JSON.stringify(
     {
@@ -1051,6 +1067,7 @@ export async function swapCardWithAI(
   strategyHint?: string,
   colorPref?: string[],
   maxBudgetUsd?: number,
+  powerLevel?: PowerLevelId,
 ): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -1063,6 +1080,7 @@ export async function swapCardWithAI(
     strategyHint,
     colorPref,
     maxBudgetUsd,
+    powerLevel,
   );
 
   const deckJson = JSON.stringify(

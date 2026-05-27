@@ -20,6 +20,9 @@ const bodySchema = z.object({
   strategy: z.string().optional(),
   colors: z.array(z.enum(["W", "U", "B", "R", "G"])).optional(),
   budgetMax: z.number().positive().optional(),
+  powerLevel: z
+    .enum(["casual", "focused", "optimized", "high"])
+    .optional(),
 });
 
 export const maxDuration = 120;
@@ -39,7 +42,8 @@ export async function POST(request: Request) {
     );
   }
 
-  const { format, resolved, strategy, colors, budgetMax } = parsed.data;
+  const { format, resolved, strategy, colors, budgetMax, powerLevel } =
+    parsed.data;
   const playable = resolved.filter((r) => r.card) as ResolvedCollectionCard[];
 
   if (playable.length < 10) {
@@ -66,6 +70,7 @@ export async function POST(request: Request) {
           colors,
           budgetMax,
           (ev: DeckBuildProgress) => send("progress", ev),
+          powerLevel,
         );
 
         const validation = validateDeck(deck, playable);

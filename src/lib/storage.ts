@@ -1,3 +1,4 @@
+import type { PowerLevelId } from "./power-levels";
 import type { BuiltDeck, FormatId, ResolvedCollectionCard } from "./types";
 
 const COLLECTION_KEY = "mtg-deckbuilder:collection";
@@ -17,6 +18,7 @@ export type UserPrefs = {
   strategy: string;
   budgetMax: number;
   theme: "dark" | "light";
+  powerLevel: PowerLevelId;
 };
 
 export type SavedDeckEntry = {

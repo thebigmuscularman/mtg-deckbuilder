@@ -2,6 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FORMATS } from "@/lib/formats";
+import {
+  DEFAULT_POWER_LEVEL,
+  POWER_LEVELS,
+  isPowerLevelId,
+  type PowerLevelId,
+} from "@/lib/power-levels";
 import { collectionEstimatedValue, formatUsd } from "@/lib/prices";
 import {
   loadCollection,
@@ -80,6 +86,8 @@ export function DeckBuilderApp() {
   const [strategy, setStrategy] = useState("");
   const [colors, setColors] = useState<Color[]>([]);
   const [budgetMax, setBudgetMax] = useState<number>(0);
+  const [powerLevel, setPowerLevel] =
+    useState<PowerLevelId>(DEFAULT_POWER_LEVEL);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -108,6 +116,7 @@ export function DeckBuilderApp() {
     if (prefs.colors?.length) setColors(prefs.colors as Color[]);
     if (prefs.strategy) setStrategy(prefs.strategy);
     if (prefs.budgetMax) setBudgetMax(prefs.budgetMax);
+    if (isPowerLevelId(prefs.powerLevel)) setPowerLevel(prefs.powerLevel);
     if (prefs.theme) setTheme(prefs.theme);
     const saved = loadCollection();
     if (saved) {
@@ -124,8 +133,8 @@ export function DeckBuilderApp() {
     if (!hydrated) return;
     document.documentElement.classList.remove("light", "dark");
     document.documentElement.classList.add(theme);
-    savePrefs({ format, colors, strategy, budgetMax, theme });
-  }, [hydrated, format, colors, strategy, budgetMax, theme]);
+    savePrefs({ format, colors, strategy, budgetMax, powerLevel, theme });
+  }, [hydrated, format, colors, strategy, budgetMax, powerLevel, theme]);
 
   const collectionValue = useMemo(
     () =>
@@ -212,8 +221,9 @@ export function DeckBuilderApp() {
       strategy,
       colors,
       budgetMax: budgetMax > 0 ? budgetMax : undefined,
+      powerLevel,
     }),
-    [format, resolved, strategy, colors, budgetMax],
+    [format, resolved, strategy, colors, budgetMax, powerLevel],
   );
 
   const applyDeckResult = useCallback((label: string, data: DeckResult) => {
@@ -836,6 +846,48 @@ export function DeckBuilderApp() {
               placeholder="e.g. 5 — no card over $5"
               className="mb-7 w-full rounded-xl border border-stone-700/60 bg-stone-950/60 px-4 py-3 text-stone-100 placeholder:text-stone-600 focus:border-amber-500 focus:outline-none"
             />
+
+            <label className="mb-3 block text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
+              Power level
+            </label>
+            <div className="mb-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {(Object.keys(POWER_LEVELS) as PowerLevelId[]).map((id) => {
+                const meta = POWER_LEVELS[id];
+                const active = powerLevel === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setPowerLevel(id)}
+                    className={`card-hover rounded-xl px-3 py-2.5 text-left text-sm transition ${
+                      active
+                        ? "bg-gradient-to-br from-amber-400 to-amber-600 text-stone-950 shadow-lg"
+                        : "bg-stone-800/80 text-stone-300 ring-1 ring-stone-700/60"
+                    }`}
+                    aria-pressed={active}
+                  >
+                    <span className="block font-bold">{meta.label}</span>
+                    <span
+                      className={`block text-[0.65rem] uppercase tracking-wider ${
+                        active ? "text-stone-900/80" : "text-stone-500"
+                      }`}
+                    >
+                      {meta.bracket}
+                    </span>
+                    <span
+                      className={`mt-1 block text-[0.7rem] leading-snug ${
+                        active ? "text-stone-900/90" : "text-stone-400"
+                      }`}
+                    >
+                      {meta.short}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mb-7 text-xs italic text-stone-500">
+              {POWER_LEVELS[powerLevel].hint}
+            </p>
 
             <div className="flex flex-wrap items-center gap-3">
               <button
