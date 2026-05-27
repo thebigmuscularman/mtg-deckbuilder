@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { loadCollection, saveCollection } from "@/lib/storage";
+import {
+  clearCollection,
+  loadCollection,
+  saveCollection,
+} from "@/lib/storage";
 import type { ResolvedCollectionCard } from "@/lib/types";
 
 export type CollectionSummary = {
@@ -76,5 +80,11 @@ export function useCollection() {
     [persist],
   );
 
-  return { resolved, summary, restore, setFromResponse, removeAt };
+  const reset = useCallback(() => {
+    setResolved([]);
+    setSummary(null);
+    clearCollection();
+  }, []);
+
+  return { resolved, summary, restore, setFromResponse, removeAt, reset };
 }

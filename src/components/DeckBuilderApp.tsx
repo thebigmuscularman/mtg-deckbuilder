@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   comparePowerToTarget,
   suggestPowerLevelAdjustment,
@@ -51,9 +51,14 @@ export function DeckBuilderApp() {
   const [showHistory, setShowHistory] = useState(false);
 
   const activeResult = deckTabs[activeTab]?.result ?? null;
+  const hydrationDone = useRef(false);
 
   useEffect(() => {
-    if (!prefs.hydrated) return;
+    // Run exactly once after prefs hydrate. Without the ref guard this fires
+    // on every render (useCollection returns a fresh object literal), which
+    // would constantly snap step back to "review" and fight any setStep call.
+    if (!prefs.hydrated || hydrationDone.current) return;
+    hydrationDone.current = true;
     /* eslint-disable react-hooks/set-state-in-effect -- restore initial step from localStorage */
     if (collection.restore()) setStep("review");
     setDeckHistory(loadDeckHistory());
@@ -392,7 +397,11 @@ export function DeckBuilderApp() {
           onBuildStream={() => void buildStream()}
           onBuild={() => void build()}
           onBuildThree={() => void buildThree()}
-          onChangeCollection={() => setStep("upload")}
+          onChangeCollection={() => {
+            collection.reset();
+            setDeckTabs([]);
+            setStep("upload");
+          }}
           onRemoveCollectionLine={collection.removeAt}
         />
       )}
