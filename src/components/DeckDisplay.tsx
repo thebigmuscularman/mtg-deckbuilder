@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { getCardImage, getDisplayName } from "@/lib/scryfall";
 import type { BuiltDeck, ScryfallCard } from "@/lib/types";
 
@@ -66,11 +67,14 @@ function CardRow({ line }: { line: EnrichedLine }) {
   return (
     <li className="card-hover group flex gap-3 rounded-xl border border-stone-800/80 bg-gradient-to-br from-stone-900/70 to-stone-950/70 px-3 py-2.5 backdrop-blur">
       {image ? (
-        <div className="relative shrink-0 overflow-hidden rounded-lg ring-1 ring-stone-700/60 transition group-hover:ring-amber-500/40">
-          <img
+        <div className="relative h-24 w-[68px] shrink-0 overflow-hidden rounded-lg ring-1 ring-stone-700/60 transition group-hover:ring-amber-500/40">
+          <Image
             src={image}
             alt={name}
-            className="h-24 w-[68px] object-cover transition group-hover:scale-105"
+            fill
+            sizes="68px"
+            className="object-cover transition group-hover:scale-105"
+            unoptimized
           />
         </div>
       ) : (

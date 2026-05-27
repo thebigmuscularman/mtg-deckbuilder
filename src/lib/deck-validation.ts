@@ -1,7 +1,6 @@
 import type {
   BuiltDeck,
   DeckCardLine,
-  FormatId,
   ResolvedCollectionCard,
   ScryfallCard,
 } from "./types";

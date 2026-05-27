@@ -234,13 +234,28 @@ function trimDeckToCollection(
     trimmedMainboard = filterByPref(trimmedMainboard, "mainboard");
     trimmedSideboard = filterByPref(trimmedSideboard, "sideboard");
 
-    if (commanderCard && !cardMeetsColorIdentity(commanderCard, prefColors)) {
-      adjustments.push(
-        `Dropped commander ${commander} — color identity outside requested ${formatColorIdentity(prefColors)}. Pick a legendary creature whose identity fits.`,
-      );
-      commander = null;
-      commanderReason = undefined;
-      commanderCard = null;
+    if (commanderCard) {
+      const commanderIdentity = new Set(commanderCard.color_identity ?? []);
+      const requested = new Set(prefColors);
+      const exactMatch =
+        commanderIdentity.size === requested.size &&
+        [...commanderIdentity].every((c) => requested.has(c));
+      const strictlyOutside = !cardMeetsColorIdentity(commanderCard, prefColors);
+
+      // For Commander, require commander identity to EXACTLY match user's color combo so
+      // the deck actually uses every requested color. For other formats, just drop
+      // commanders whose identity leaks outside the requested colors.
+      const shouldDrop =
+        deck.format === "commander" ? !exactMatch : strictlyOutside;
+
+      if (shouldDrop) {
+        adjustments.push(
+          `Dropped commander ${commander} — identity ${formatColorIdentity([...commanderIdentity])} does not match requested ${formatColorIdentity(prefColors)}. Pick a legendary creature whose identity is exactly that.`,
+        );
+        commander = null;
+        commanderReason = undefined;
+        commanderCard = null;
+      }
     }
   }
 
@@ -308,6 +323,8 @@ function trimDeckToCollection(
     .join(" \u2022 ")
     .toLowerCase();
 
+  const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
   const importanceScore = (
     line: DeckCardLine,
     position: number,
@@ -322,8 +339,10 @@ function trimDeckToCollection(
     // Mana base is the load-bearing structure of every deck — protect it.
     if (isBasic) score += 5000;
     else if (isLand) score += 1200;
-    // The AI literally named these as how the deck wins / what it's strong at.
-    if (importanceText.includes(name)) score += 800;
+    // The AI named this card in how the deck wins / its strengths — protect it.
+    // Word-boundary check avoids "Bolt" matching every "thunderbolt" in the prose.
+    const nameWordBoundary = new RegExp(`\\b${escapeRegex(name)}\\b`);
+    if (nameWordBoundary.test(importanceText)) score += 800;
     // Higher copy counts in 60-card formats signal core 4-of staples.
     score += line.quantity * 120;
     // The AI tends to list important cards first; later positions skew toward filler.

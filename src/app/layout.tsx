@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -16,6 +16,9 @@ export const metadata: Metadata = {
   title: "MTG Deckbrewer — AI deck builder from your collection",
   description:
     "Upload your Magic: The Gathering collection and build Standard, Modern, or Commander decks with AI. Card data from Scryfall.",
+};
+
+export const viewport: Viewport = {
   themeColor: "#0a0807",
 };
 

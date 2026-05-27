@@ -116,14 +116,6 @@ export function parseCollectionText(text: string): CollectionEntry[] {
   return mergeDuplicates(entries);
 }
 
-export function parseCollectionFile(content: string, filename: string): CollectionEntry[] {
-  const lower = filename.toLowerCase();
-  if (lower.endsWith(".txt")) {
-    return parseCollectionText(content);
-  }
-  throw new Error("Unsupported file type. Upload a .txt file.");
-}
-
 function mergeDuplicates(entries: CollectionEntry[]): CollectionEntry[] {
   const map = new Map<string, CollectionEntry>();
 
