@@ -6,8 +6,8 @@ import type { LegalityStatus, ScryfallCard } from "./types";
  * We inject these stubs into the owned index so the deck builder can
  * always use basics for mana fixing, even if the upload didn't list them.
  *
- * IDs are real Scryfall card IDs (Magic Origins printings) so image URLs
- * resolve to real card art.
+ * IDs below are real, live Scryfall card IDs so image URLs resolve to
+ * real card art.
  */
 
 const ALL_LEGAL: Record<string, LegalityStatus> = {
@@ -24,7 +24,6 @@ function basic(
   colorLetter: string,
   oracleAbility: string,
 ): ScryfallCard {
-  const lower = name.toLowerCase();
   const first = id[0];
   const second = id[1];
   return {
@@ -36,8 +35,8 @@ function basic(
     colors: [],
     color_identity: colorLetter ? [colorLetter] : [],
     legalities: ALL_LEGAL,
-    set: "ori",
-    set_name: "Magic Origins",
+    set: "hob",
+    set_name: "Heads I Win, Tails You Lose",
     rarity: "common",
     layout: "normal",
     image_uris: {

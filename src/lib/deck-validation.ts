@@ -17,6 +17,13 @@ export interface OwnedEntry {
   card: ScryfallCard;
 }
 
+/** Quantity used for the 5 basic lands that aren't already in the
+ *  user's collection. Basics are free in real Magic, but collection
+ *  exports (Moxfield, Archidekt, etc.) often omit them — so without
+ *  this stub, the builder can't pad mana bases when the user's upload
+ *  had no basics. 999 ≫ any conceivable real-deck land count. */
+const VIRTUAL_BASIC_QTY = 999;
+
 /**
  * Single source of truth for "what does the user own and how many".
  *
@@ -29,12 +36,10 @@ export interface OwnedEntry {
  * so anywhere downstream can resolve an AI's reference regardless of
  * which spelling it echoes back. The same `{ qty, card }` object is
  * shared across all keys for a given card, so quantities never drift.
+ *
+ * Finally, any of the 5 basic lands the user *didn't* upload are
+ * injected as virtual entries (see VIRTUAL_BASIC_QTY).
  */
-/** Inject the 5 basics with effectively-infinite quantity. Basics are free
- *  in real Magic, but collection exports often omit them — without this,
- *  the builder can't pad mana bases when the user's upload had no basics. */
-const VIRTUAL_BASIC_QTY = 999;
-
 export function buildOwnedIndex(
   resolved: ResolvedCollectionCard[],
 ): Map<string, OwnedEntry> {
