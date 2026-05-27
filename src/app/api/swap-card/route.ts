@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { buildDeckWithAI } from "@/lib/ai-deckbuilder";
+import { swapCardWithAI } from "@/lib/ai-deckbuilder";
 import { validateDeck } from "@/lib/deck-validation";
-import type { FormatId, ResolvedCollectionCard } from "@/lib/types";
+import type { BuiltDeck, FormatId, ResolvedCollectionCard } from "@/lib/types";
+
+const cardLineSchema = z.object({
+  name: z.string(),
+  quantity: z.number().int().positive(),
+  scryfallId: z.string().optional(),
+  reason: z.string().optional(),
+});
 
 const bodySchema = z.object({
   format: z.enum(["standard", "modern", "commander"]),
@@ -18,18 +25,35 @@ const bodySchema = z.object({
       error: z.string().optional(),
     }),
   ),
+  deck: z.object({
+    name: z.string(),
+    description: z.string(),
+    commander: z.string().nullable(),
+    commanderReason: z.string().optional(),
+    archetype: z.string().optional(),
+    overview: z.string().optional(),
+    winConditions: z.array(z.string()).optional(),
+    strengths: z.array(z.string()).optional(),
+    weaknesses: z.array(z.string()).optional(),
+    mainboard: z.array(cardLineSchema),
+    sideboard: z.array(cardLineSchema),
+    strategy: z.string(),
+    warnings: z.array(z.string()).default([]),
+    format: z.enum(["standard", "modern", "commander"]),
+  }),
+  cardName: z.string().min(1),
+  zone: z.enum(["mainboard", "sideboard", "commander"]),
   strategy: z.string().optional(),
   colors: z.array(z.enum(["W", "U", "B", "R", "G"])).optional(),
   budgetMax: z.number().positive().optional(),
 });
 
-export const maxDuration = 120;
+export const maxDuration = 90;
 
 export async function POST(request: Request) {
   try {
     const json = await request.json();
     const parsed = bodySchema.safeParse(json);
-
     if (!parsed.success) {
       return NextResponse.json(
         { error: "Invalid request", details: parsed.error.flatten() },
@@ -37,28 +61,26 @@ export async function POST(request: Request) {
       );
     }
 
-    const { format, resolved, strategy, colors, budgetMax } = parsed.data;
+    const { format, resolved, deck, cardName, zone, strategy, colors, budgetMax } =
+      parsed.data;
     const playable = resolved.filter((r) => r.card) as ResolvedCollectionCard[];
+    const previousDeck: BuiltDeck = { ...deck, warnings: deck.warnings ?? [] };
 
-    if (playable.length < 10) {
-      return NextResponse.json(
-        { error: "Need at least 10 resolved cards to build a deck." },
-        { status: 400 },
-      );
-    }
-
-    const { deck, validationErrors } = await buildDeckWithAI(
+    const { deck: swapped, validationErrors } = await swapCardWithAI(
       format as FormatId,
       playable,
+      previousDeck,
+      cardName,
+      zone,
       strategy,
       colors,
       budgetMax,
     );
 
-    const validation = validateDeck(deck, playable);
+    const validation = validateDeck(swapped, playable);
 
     return NextResponse.json({
-      deck,
+      deck: swapped,
       validation: {
         valid: validation.valid,
         errors: validation.errors,
@@ -72,7 +94,7 @@ export async function POST(request: Request) {
       },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Deck build failed";
+    const message = err instanceof Error ? err.message : "Swap failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

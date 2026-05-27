@@ -1,8 +1,20 @@
 "use client";
 
 import Image from "next/image";
+import { useMemo } from "react";
+import { groupLinesByType } from "@/lib/card-groups";
+import {
+  computeDeckStats,
+  estimateCommanderPowerLevel,
+  getLandWarnings,
+} from "@/lib/deck-stats";
+import { exportDeck, type ExportFormat } from "@/lib/export-formats";
+import { deckEstimatedValue } from "@/lib/prices";
 import { getCardImage, getDisplayName } from "@/lib/scryfall";
 import type { BuiltDeck, ScryfallCard } from "@/lib/types";
+import { CardHoverPreview } from "./CardHoverPreview";
+import { DeckStatsPanel } from "./DeckStatsPanel";
+import { ManaIdentityBadge } from "./ManaIdentityBadge";
 
 type EnrichedLine = {
   name: string;
@@ -23,11 +35,11 @@ interface DeckDisplayProps {
     errors: string[];
     warnings: string[];
   };
+  onSwapCard?: (name: string, zone: "mainboard" | "sideboard" | "commander") => void;
+  swappingCard?: string | null;
 }
 
 function manaClass(inner: string): string {
-  // Scryfall mana costs come as "{2}{W}{U/B}{X}{T}". The mana-font class is the
-  // lowercased contents with the "/" stripped (e.g. {U/B} -> ms-ub, {2/W} -> ms-2w).
   const cleaned = inner.toLowerCase().replace(/\//g, "");
   return `ms ms-${cleaned} ms-cost ms-shadow`;
 }
@@ -46,7 +58,17 @@ function formatManaCost(cost?: string) {
   );
 }
 
-function CardRow({ line }: { line: EnrichedLine }) {
+function CardRow({
+  line,
+  zone,
+  onSwap,
+  swapping,
+}: {
+  line: EnrichedLine;
+  zone: "mainboard" | "sideboard" | "commander";
+  onSwap?: (name: string, zone: "mainboard" | "sideboard" | "commander") => void;
+  swapping?: boolean;
+}) {
   const image = line.card ? getCardImage(line.card) : undefined;
   const name = line.card ? getDisplayName(line.card) : line.name;
 
@@ -69,27 +91,36 @@ function CardRow({ line }: { line: EnrichedLine }) {
         </div>
       )}
       <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <p className="truncate font-semibold text-amber-50">
-            <span className="mr-1 inline-block min-w-[1.75rem] rounded bg-amber-500/15 px-1.5 text-center text-xs font-bold tabular-nums text-amber-300 ring-1 ring-amber-700/30">
-              {line.quantity}
-            </span>
-            {name}
-          </p>
-          {line.card?.mana_cost && (
-            <div className="shrink-0">{formatManaCost(line.card.mana_cost)}</div>
-          )}
-        </div>
+        <CardHoverPreview card={line.card}>
+          <div className="flex items-start justify-between gap-2">
+            <p className="truncate font-semibold text-amber-50">
+              <span className="mr-1 inline-block min-w-[1.75rem] rounded bg-amber-500/15 px-1.5 text-center text-xs font-bold tabular-nums text-amber-300 ring-1 ring-amber-700/30">
+                {line.quantity}
+              </span>
+              {name}
+            </p>
+            {line.card?.mana_cost && (
+              <div className="shrink-0">{formatManaCost(line.card.mana_cost)}</div>
+            )}
+          </div>
+        </CardHoverPreview>
         {line.card && (
-          <p className="truncate text-xs italic text-stone-400">
-            {line.card.type_line}
-          </p>
+          <p className="truncate text-xs italic text-stone-400">{line.card.type_line}</p>
         )}
         {line.reason && (
           <p className="mt-1.5 text-xs leading-relaxed text-stone-300/85">
-            <span className="font-semibold text-amber-500/90">Why:</span>{" "}
-            {line.reason}
+            <span className="font-semibold text-amber-500/90">Why:</span> {line.reason}
           </p>
+        )}
+        {onSwap && (
+          <button
+            type="button"
+            disabled={swapping}
+            onClick={() => onSwap(name, zone)}
+            className="mt-2 rounded-lg bg-stone-800/80 px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-wider text-stone-400 ring-1 ring-stone-700/60 transition hover:bg-amber-950/50 hover:text-amber-300 disabled:opacity-50"
+          >
+            {swapping ? "Swapping…" : "↻ Reroll card"}
+          </button>
         )}
       </div>
     </li>
@@ -163,36 +194,91 @@ function SectionHeader({ title, count }: { title: string; count: number }) {
   );
 }
 
-function Section({
+function GroupedSection({
   title,
   lines,
+  zone,
+  onSwap,
+  swappingCard,
 }: {
   title: string;
   lines: EnrichedLine[];
+  zone: "mainboard" | "sideboard";
+  onSwap?: (name: string, zone: "mainboard" | "sideboard" | "commander") => void;
+  swappingCard?: string | null;
 }) {
   if (!lines.length) return null;
-  const sorted = [...lines].sort((a, b) => a.name.localeCompare(b.name));
+  const groups = groupLinesByType(lines);
   const total = lines.reduce((s, l) => s + l.quantity, 0);
 
   return (
     <section>
       <SectionHeader title={title} count={total} />
-      <ul className="grid gap-2 sm:grid-cols-2">
-        {sorted.map((line, i) => (
-          <CardRow key={`${line.name}-${i}`} line={line} />
-        ))}
-      </ul>
+      <div className="space-y-6">
+        {groups.map(({ section, lines: groupLines }) => {
+          const sectionCount = groupLines.reduce((s, l) => s + l.quantity, 0);
+          return (
+            <div key={section}>
+              <h4 className="mb-2 text-[0.65rem] font-bold uppercase tracking-[0.2em] text-stone-500">
+                {section} · {sectionCount}
+              </h4>
+              <ul className="grid gap-2 sm:grid-cols-2">
+                {groupLines.map((line, i) => (
+                  <CardRow
+                    key={`${section}-${line.name}-${i}`}
+                    line={line}
+                    zone={zone}
+                    onSwap={onSwap}
+                    swapping={swappingCard === line.name}
+                  />
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }
 
-export function DeckDisplay({ deck, enriched, validation }: DeckDisplayProps) {
+function copyText(text: string) {
+  void navigator.clipboard.writeText(text);
+}
+
+export function DeckDisplay({
+  deck,
+  enriched,
+  validation,
+  onSwapCard,
+  swappingCard,
+}: DeckDisplayProps) {
   const mainboard: EnrichedLine[] =
-    enriched?.mainboard ??
-    deck.mainboard.map((l) => ({ ...l, card: null }));
+    enriched?.mainboard ?? deck.mainboard.map((l) => ({ ...l, card: null }));
   const sideboard: EnrichedLine[] =
-    enriched?.sideboard ??
-    deck.sideboard.map((l) => ({ ...l, card: null }));
+    enriched?.sideboard ?? deck.sideboard.map((l) => ({ ...l, card: null }));
+  const commanderCard = enriched?.commander ?? null;
+
+  const stats = useMemo(() => computeDeckStats(mainboard), [mainboard]);
+  const landWarnings = useMemo(
+    () => getLandWarnings(deck.format, stats),
+    [deck.format, stats],
+  );
+  const powerLevel = useMemo(
+    () => estimateCommanderPowerLevel(deck, mainboard, commanderCard),
+    [deck, mainboard, commanderCard],
+  );
+  const deckValue = useMemo(
+    () => deckEstimatedValue(mainboard, commanderCard),
+    [mainboard, commanderCard],
+  );
+
+  const commanderIdentity =
+    commanderCard?.color_identity ?? [];
+
+  const handleExport = (format: ExportFormat) => {
+    const text = exportDeck(deck, format);
+    copyText(text);
+  };
 
   return (
     <div className="space-y-10">
@@ -210,6 +296,9 @@ export function DeckDisplay({ deck, enriched, validation }: DeckDisplayProps) {
             <span className="rounded-full border border-stone-700/60 bg-stone-900/60 px-3 py-0.5 text-stone-400">
               {deck.format}
             </span>
+            {commanderIdentity.length > 0 && (
+              <ManaIdentityBadge colors={commanderIdentity} />
+            )}
           </div>
           <h2 className="shimmer-text text-3xl font-black tracking-tight sm:text-4xl">
             {deck.name}
@@ -267,6 +356,34 @@ export function DeckDisplay({ deck, enriched, validation }: DeckDisplayProps) {
         </div>
       </header>
 
+      <DeckStatsPanel
+        stats={stats}
+        landWarnings={landWarnings}
+        powerLevel={powerLevel}
+        deckValueUsd={deckValue}
+        colorIdentity={commanderIdentity}
+      />
+
+      <div className="flex flex-wrap gap-2">
+        {(
+          [
+            ["moxfield", "Copy Moxfield"],
+            ["archidekt", "Copy Archidekt"],
+            ["mtga", "Copy MTGA"],
+            ["plain", "Copy plain"],
+          ] as const
+        ).map(([fmt, label]) => (
+          <button
+            key={fmt}
+            type="button"
+            onClick={() => handleExport(fmt)}
+            className="card-hover rounded-lg bg-stone-900/60 px-3 py-1.5 text-xs font-semibold text-amber-200/90 ring-1 ring-stone-700/60 hover:text-amber-100"
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div className="glass-panel relative overflow-hidden rounded-2xl p-6">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-500/60 to-transparent" />
         <h3 className="mb-3 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.25em] text-amber-400">
@@ -277,26 +394,45 @@ export function DeckDisplay({ deck, enriched, validation }: DeckDisplayProps) {
         </p>
       </div>
 
-      {enriched?.commander && (
+      {commanderCard && (
         <section>
           <SectionHeader title="Commander" count={1} />
           <CardRow
             line={{
-              name: getDisplayName(enriched.commander),
+              name: getDisplayName(commanderCard),
               quantity: 1,
-              card: enriched.commander,
+              card: commanderCard,
               reason: deck.commanderReason,
             }}
+            zone="commander"
+            onSwap={onSwapCard}
+            swapping={swappingCard === getDisplayName(commanderCard)}
           />
         </section>
       )}
 
-      <Section title="Main deck" lines={mainboard} />
-      <Section title="Sideboard" lines={sideboard} />
+      <GroupedSection
+        title="Main deck"
+        lines={mainboard}
+        zone="mainboard"
+        onSwap={onSwapCard}
+        swappingCard={swappingCard}
+      />
+      <GroupedSection
+        title="Sideboard"
+        lines={sideboard}
+        zone="sideboard"
+        onSwap={onSwapCard}
+        swappingCard={swappingCard}
+      />
 
       {(() => {
         const notes = [
-          ...new Set([...deck.warnings, ...(validation?.warnings ?? [])]),
+          ...new Set([
+            ...deck.warnings,
+            ...landWarnings,
+            ...(validation?.warnings ?? []),
+          ]),
         ];
         if (!notes.length) return null;
         return (

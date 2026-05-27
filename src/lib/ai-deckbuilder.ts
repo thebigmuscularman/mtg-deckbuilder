@@ -15,7 +15,13 @@ import type {
   ResolvedCollectionCard,
   ScryfallCard,
 } from "./types";
+import { cardUsdPrice } from "./prices";
 import { getDisplayName } from "./scryfall";
+
+export type DeckBuildProgress =
+  | { type: "status"; message: string }
+  | { type: "token"; delta: string }
+  | { type: "attempt"; attempt: number; maxAttempts: number };
 
 const COLOR_NAMES: Record<string, string> = {
   W: "White",
@@ -133,6 +139,7 @@ function trimDeckToCollection(
   deck: BuiltDeck,
   resolved: ResolvedCollectionCard[],
   colorPref?: string[],
+  maxBudgetUsd?: number,
 ): { deck: BuiltDeck; adjustments: string[] } {
   const formatRules = getFormat(deck.format);
   const owned = buildOwnedQuantities(resolved);
@@ -170,6 +177,13 @@ function trimDeckToCollection(
 
       if (allowed <= 0) {
         adjustments.push(`Dropped ${display} (no copies available).`);
+        continue;
+      }
+
+      if (maxBudgetUsd && maxBudgetUsd > 0 && cardUsdPrice(ownedEntry.card) > maxBudgetUsd) {
+        adjustments.push(
+          `Dropped ${display} from ${zone} — over budget ($${cardUsdPrice(ownedEntry.card).toFixed(2)} > $${maxBudgetUsd} max).`,
+        );
         continue;
       }
 
@@ -551,6 +565,7 @@ function buildBaseUserMessage(
   resolved: ResolvedCollectionCard[],
   strategyHint?: string,
   colorPref?: string[],
+  maxBudgetUsd?: number,
 ): string {
   const collectionContext = buildCollectionContext(resolved, format);
   const unresolved = resolved.filter((r) => !r.card).map((r) => r.entry.name);
@@ -597,6 +612,12 @@ The user has explicitly requested these colors: ${colorList}.
     userMessage += prefBlock;
   }
 
+  if (maxBudgetUsd && maxBudgetUsd > 0) {
+    userMessage += `\n\n*** BUDGET CAP — $${maxBudgetUsd} USD per card (Scryfall nonfoil) ***
+- Do not include any card whose typical price exceeds $${maxBudgetUsd}.
+- Prefer budget-friendly alternatives from the collection. Basic lands are always allowed.`;
+  }
+
   if (strategyHint?.trim()) {
     userMessage += `\n\nUser preference: ${strategyHint.trim()}`;
   }
@@ -612,6 +633,8 @@ async function runDeckGeneration(
   baseMessages: OpenAI.Chat.ChatCompletionMessageParam[],
   maxAttempts: number,
   colorPref?: string[],
+  maxBudgetUsd?: number,
+  onProgress?: (event: DeckBuildProgress) => void,
 ): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -634,14 +657,45 @@ async function runDeckGeneration(
       });
     }
 
-    const completion = await client.chat.completions.create({
-      model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-      temperature: 0.7,
-      response_format: { type: "json_object" },
-      messages,
+    onProgress?.({
+      type: "attempt",
+      attempt: attempt + 1,
+      maxAttempts,
+    });
+    onProgress?.({
+      type: "status",
+      message:
+        attempt === 0
+          ? "Reading your collection and drafting a deck list…"
+          : `Fixing ${lastErrors.length} validation issue${lastErrors.length === 1 ? "" : "s"}…`,
     });
 
-    const raw = completion.choices[0]?.message?.content;
+    let raw = "";
+    if (onProgress) {
+      const stream = await client.chat.completions.create({
+        model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+        temperature: 0.7,
+        response_format: { type: "json_object" },
+        messages,
+        stream: true,
+      });
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta?.content ?? "";
+        if (delta) {
+          raw += delta;
+          onProgress({ type: "token", delta });
+        }
+      }
+    } else {
+      const completion = await client.chat.completions.create({
+        model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+        temperature: 0.7,
+        response_format: { type: "json_object" },
+        messages,
+      });
+      raw = completion.choices[0]?.message?.content ?? "";
+    }
+
     if (!raw) throw new Error("AI returned an empty response");
 
     let json: unknown;
@@ -666,13 +720,19 @@ async function runDeckGeneration(
       warnings: parsed.data.warnings ?? [],
     };
 
-    const { deck, adjustments } = trimDeckToCollection(rawDeck, resolved, colorPref);
+    const { deck, adjustments } = trimDeckToCollection(
+      rawDeck,
+      resolved,
+      colorPref,
+      maxBudgetUsd,
+    );
     if (adjustments.length) {
       deck.warnings = [...deck.warnings, ...adjustments];
     }
 
     const validation = validateDeck(deck, resolved);
     if (validation.valid) {
+      onProgress?.({ type: "status", message: "Deck validated — ready!" });
       return { deck, validationErrors: [] };
     }
 
@@ -688,7 +748,12 @@ async function runDeckGeneration(
     format,
     warnings: parsedDeck.warnings ?? [],
   };
-  const { deck, adjustments } = trimDeckToCollection(rawDeck, resolved, colorPref);
+  const { deck, adjustments } = trimDeckToCollection(
+    rawDeck,
+    resolved,
+    colorPref,
+    maxBudgetUsd,
+  );
   deck.warnings = [...deck.warnings, ...adjustments, ...lastErrors];
 
   return { deck, validationErrors: lastErrors };
@@ -699,13 +764,29 @@ export async function buildDeckWithAI(
   resolved: ResolvedCollectionCard[],
   strategyHint?: string,
   colorPref?: string[],
+  maxBudgetUsd?: number,
+  onProgress?: (event: DeckBuildProgress) => void,
 ): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
-  const userMessage = buildBaseUserMessage(format, resolved, strategyHint, colorPref);
+  const userMessage = buildBaseUserMessage(
+    format,
+    resolved,
+    strategyHint,
+    colorPref,
+    maxBudgetUsd,
+  );
   const baseMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt(format) },
     { role: "user", content: userMessage },
   ];
-  return runDeckGeneration(format, resolved, baseMessages, 3, colorPref);
+  return runDeckGeneration(
+    format,
+    resolved,
+    baseMessages,
+    3,
+    colorPref,
+    maxBudgetUsd,
+    onProgress,
+  );
 }
 
 export async function refineDeckWithAI(
@@ -715,8 +796,16 @@ export async function refineDeckWithAI(
   errors: string[],
   strategyHint?: string,
   colorPref?: string[],
+  maxBudgetUsd?: number,
+  onProgress?: (event: DeckBuildProgress) => void,
 ): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
-  const userMessage = buildBaseUserMessage(format, resolved, strategyHint, colorPref);
+  const userMessage = buildBaseUserMessage(
+    format,
+    resolved,
+    strategyHint,
+    colorPref,
+    maxBudgetUsd,
+  );
   const previousJson = JSON.stringify(
     {
       name: previousDeck.name,
@@ -750,5 +839,124 @@ export async function refineDeckWithAI(
     },
   ];
 
-  return runDeckGeneration(format, resolved, baseMessages, 4, colorPref);
+  return runDeckGeneration(
+    format,
+    resolved,
+    baseMessages,
+    4,
+    colorPref,
+    maxBudgetUsd,
+    onProgress,
+  );
+}
+
+const swapResponseSchema = z.object({
+  replacements: z.array(
+    z.object({
+      name: aiRequiredString,
+      quantity: z.number().int().positive(),
+      reason: aiOptionalString,
+    }),
+  ),
+});
+
+export async function swapCardWithAI(
+  format: FormatId,
+  resolved: ResolvedCollectionCard[],
+  deck: BuiltDeck,
+  cardToReplace: string,
+  zone: "mainboard" | "sideboard" | "commander",
+  strategyHint?: string,
+  colorPref?: string[],
+  maxBudgetUsd?: number,
+): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is not set.");
+  }
+
+  const userMessage = buildBaseUserMessage(
+    format,
+    resolved,
+    strategyHint,
+    colorPref,
+    maxBudgetUsd,
+  );
+
+  const deckJson = JSON.stringify(
+    {
+      name: deck.name,
+      commander: deck.commander,
+      mainboard: deck.mainboard,
+      sideboard: deck.sideboard,
+      strategy: deck.strategy,
+    },
+    null,
+    2,
+  );
+
+  const client = new OpenAI({ apiKey });
+  const completion = await client.chat.completions.create({
+    model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+    temperature: 0.6,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: systemPrompt(format) },
+      { role: "user", content: userMessage },
+      { role: "assistant", content: deckJson },
+      {
+        role: "user",
+        content: `Replace "${cardToReplace}" in the ${zone} with a BETTER alternative from the collection for this deck's plan.
+Return JSON only:
+{
+  "replacements": [{ "name": "Exact Card Name", "quantity": 1, "reason": "why this swap improves the deck" }]
+}
+- Use only cards from the collection. Same quantity rules as the format.
+- Do NOT include "${cardToReplace}" in replacements.
+- If ${zone} is commander, replacements must be a single legendary commander you own.`,
+      },
+    ],
+  });
+
+  const raw = completion.choices[0]?.message?.content;
+  if (!raw) throw new Error("AI returned an empty response");
+
+  const parsed = swapResponseSchema.safeParse(JSON.parse(raw));
+  if (!parsed.success) {
+    throw new Error("AI swap response was invalid");
+  }
+
+  const updated: BuiltDeck = { ...deck, warnings: [...deck.warnings] };
+  const removeName = cardToReplace.trim().toLowerCase();
+
+  if (zone === "commander") {
+    const rep = parsed.data.replacements[0];
+    if (!rep) throw new Error("No replacement commander suggested");
+    updated.commander = rep.name;
+    updated.commanderReason = rep.reason;
+  } else {
+    const list = zone === "mainboard" ? updated.mainboard : updated.sideboard;
+    const filtered = list.filter((l) => l.name.toLowerCase() !== removeName);
+    const merged = [...filtered, ...parsed.data.replacements];
+    if (zone === "mainboard") updated.mainboard = merged;
+    else updated.sideboard = merged;
+  }
+
+  const { deck: trimmed, adjustments } = trimDeckToCollection(
+    updated,
+    resolved,
+    colorPref,
+    maxBudgetUsd,
+  );
+  trimmed.warnings = [
+    ...trimmed.warnings,
+    ...adjustments,
+    `Swapped out ${cardToReplace} for ${parsed.data.replacements.map((r) => r.name).join(", ")}.`,
+  ];
+
+  const validation = validateDeck(trimmed, resolved);
+  return {
+    deck: trimmed,
+    validationErrors: validation.valid ? [] : validation.errors,
+  };
 }
