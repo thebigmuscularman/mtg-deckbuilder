@@ -143,6 +143,10 @@ export function validateDeck(
       if (legality === "banned" || legality === "not_legal") {
         errors.push(`${displayName} is not legal in ${format.label}`);
       }
+
+      if (deck.format === "pauper" && line.card.rarity !== "common") {
+        errors.push(`${displayName} is not common — illegal in Pauper`);
+      }
       if (legality === "restricted" && line.quantity > 1) {
         errors.push(`${displayName} is restricted to 1 copy`);
       }

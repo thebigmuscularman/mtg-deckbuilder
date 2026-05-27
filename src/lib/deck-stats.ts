@@ -243,3 +243,64 @@ export function estimateCommanderPowerLevel(
 
   return { score, label, factors };
 }
+
+/** Power estimate for any format; Commander uses the fuller heuristic. */
+export function estimateDeckPowerLevel(
+  deck: BuiltDeck,
+  lines: Array<{ quantity: number; card: ScryfallCard | null }>,
+  commander: ScryfallCard | null,
+): PowerLevelResult {
+  if (deck.format === "commander") {
+    const cmd = estimateCommanderPowerLevel(deck, lines, commander);
+    if (cmd) return cmd;
+  }
+
+  let score = 3.5;
+  const factors: string[] = [];
+
+  const names = lines
+    .filter((l) => l.card)
+    .flatMap((l) => Array(l.quantity).fill(nameKey(getDisplayName(l.card!))));
+
+  const fastMana = names.filter((n) => FAST_MANA.has(n)).length;
+  if (fastMana >= 2) {
+    score += 1.5;
+    factors.push(`${fastMana} fast mana`);
+  } else if (fastMana >= 1) {
+    score += 0.5;
+    factors.push("Some fast mana");
+  }
+
+  let tutors = 0;
+  for (const line of lines) {
+    if (!line.card?.oracle_text) continue;
+    const text = line.card.oracle_text.toLowerCase();
+    if (TUTOR_PATTERNS.some((p) => text.includes(p))) tutors += line.quantity;
+  }
+  if (tutors >= 4) {
+    score += 1.5;
+    factors.push("Tutor density");
+  } else if (tutors >= 2) {
+    score += 0.5;
+    factors.push("Some tutors");
+  }
+
+  const stats = computeDeckStats(lines);
+  if (stats.avgCmc <= 2.2) {
+    score += 0.5;
+    factors.push("Aggressive curve");
+  } else if (stats.avgCmc >= 3.8) {
+    score -= 0.5;
+    factors.push("Slower curve");
+  }
+
+  score = Math.min(10, Math.max(1, Math.round(score * 10) / 10));
+
+  let label = "Casual";
+  if (score >= 7.5) label = "Competitive";
+  else if (score >= 6) label = "Tuned";
+  else if (score >= 4.5) label = "Mid-power";
+  else if (score >= 3) label = "Casual";
+
+  return { score, label, factors };
+}

@@ -1,4 +1,9 @@
-export type FormatId = "standard" | "modern" | "commander";
+export type FormatId =
+  | "standard"
+  | "modern"
+  | "pioneer"
+  | "pauper"
+  | "commander";
 
 export type LegalityStatus =
   | "legal"

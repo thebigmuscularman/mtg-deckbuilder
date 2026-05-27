@@ -1,50 +1,20 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { refineDeckWithAI } from "@/lib/ai-deckbuilder";
+import { brewPreferencesFromBody } from "@/lib/api-brew-body";
+import {
+  brewRequestFields,
+  builtDeckBodySchema,
+  resolvedCollectionSchema,
+} from "@/lib/api-schemas";
 import { validateDeck } from "@/lib/deck-validation";
 import type { BuiltDeck, FormatId, ResolvedCollectionCard } from "@/lib/types";
 
-const cardLineSchema = z.object({
-  name: z.string(),
-  quantity: z.number().int().positive(),
-  scryfallId: z.string().optional(),
-  reason: z.string().optional(),
-});
-
 const bodySchema = z.object({
-  format: z.enum(["standard", "modern", "commander"]),
-  resolved: z.array(
-    z.object({
-      entry: z.object({
-        name: z.string(),
-        quantity: z.number(),
-        set: z.string().optional(),
-        collectorNumber: z.string().optional(),
-      }),
-      card: z.any().nullable(),
-      error: z.string().optional(),
-    }),
-  ),
-  deck: z.object({
-    name: z.string(),
-    description: z.string(),
-    commander: z.string().nullable(),
-    commanderReason: z.string().optional(),
-    archetype: z.string().optional(),
-    overview: z.string().optional(),
-    winConditions: z.array(z.string()).optional(),
-    strengths: z.array(z.string()).optional(),
-    weaknesses: z.array(z.string()).optional(),
-    mainboard: z.array(cardLineSchema),
-    sideboard: z.array(cardLineSchema),
-    strategy: z.string(),
-    warnings: z.array(z.string()).default([]),
-    format: z.enum(["standard", "modern", "commander"]),
-  }),
+  ...brewRequestFields,
+  resolved: resolvedCollectionSchema,
+  deck: builtDeckBodySchema,
   errors: z.array(z.string()),
-  strategy: z.string().optional(),
-  colors: z.array(z.enum(["W", "U", "B", "R", "G"])).optional(),
-  budgetMax: z.number().positive().optional(),
 });
 
 export const maxDuration = 120;
@@ -63,6 +33,7 @@ export async function POST(request: Request) {
 
     const { format, resolved, deck, errors, strategy, colors, budgetMax } =
       parsed.data;
+    const brewPrefs = brewPreferencesFromBody(parsed.data);
     const playable = resolved.filter((r) => r.card) as ResolvedCollectionCard[];
 
     if (!errors.length) {
@@ -82,6 +53,8 @@ export async function POST(request: Request) {
       strategy,
       colors,
       budgetMax,
+      undefined,
+      brewPrefs,
     );
 
     const validation = validateDeck(refinedDeck, playable);

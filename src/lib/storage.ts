@@ -1,3 +1,5 @@
+import type { HouseRules } from "./deck-preferences";
+import type { PowerLevelId } from "./power-levels";
 import type { BuiltDeck, FormatId, ResolvedCollectionCard } from "./types";
 
 const COLLECTION_KEY = "mtg-deckbuilder:collection";
@@ -17,6 +19,10 @@ export type UserPrefs = {
   strategy: string;
   budgetMax: number;
   theme: "dark" | "light";
+  powerLevel: PowerLevelId;
+  avoidList?: string;
+  houseRules?: HouseRules;
+  politicsFriendly?: boolean;
 };
 
 export type SavedDeckEntry = {
