@@ -68,6 +68,15 @@ export function saveCollection(data: SavedCollection): void {
   }
 }
 
+export function clearCollection(): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(COLLECTION_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export function loadPrefs(): Partial<UserPrefs> {
   if (typeof window === "undefined") return {};
   try {
