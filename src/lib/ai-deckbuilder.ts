@@ -294,27 +294,90 @@ function trimDeckToCollection(
     deck.format === "commander" ? 99 : formatRules.minMainboard;
   const maxSide = formatRules.maxSideboard;
 
-  // Mainboard: chop excess copies (prefer trimming highest-count non-basic slots first).
+  // Pool of signals about what the AI thinks matters — used to protect star cards
+  // from the trim and target the fluff for cuts.
+  const importanceText = [
+    deck.name ?? "",
+    deck.description ?? "",
+    deck.archetype ?? "",
+    deck.overview ?? "",
+    deck.strategy ?? "",
+    ...(deck.winConditions ?? []),
+    ...(deck.strengths ?? []),
+  ]
+    .join(" \u2022 ")
+    .toLowerCase();
+
+  const importanceScore = (
+    line: DeckCardLine,
+    position: number,
+  ): { score: number; isBasic: boolean; isLand: boolean } => {
+    const name = line.name.toLowerCase();
+    const card = owned.get(name)?.card ?? null;
+    const typeLine = (card?.type_line ?? "").toLowerCase();
+    const isBasic = isBasicLand(line.name);
+    const isLand = isBasic || typeLine.includes("land");
+
+    let score = 0;
+    // Mana base is the load-bearing structure of every deck — protect it.
+    if (isBasic) score += 5000;
+    else if (isLand) score += 1200;
+    // The AI literally named these as how the deck wins / what it's strong at.
+    if (importanceText.includes(name)) score += 800;
+    // Higher copy counts in 60-card formats signal core 4-of staples.
+    score += line.quantity * 120;
+    // The AI tends to list important cards first; later positions skew toward filler.
+    score += Math.max(0, 240 - position * 6);
+    // A real reason ("kills Phyrexian Obliterator, blocks fliers") is harder
+    // to write for filler picks than for staples.
+    if (line.reason && line.reason.trim().length > 25) score += 80;
+    else if (line.reason && line.reason.trim().length > 10) score += 30;
+    return { score, isBasic, isLand };
+  };
+
+  // Mainboard: cut the least important cards first (low quantity, low position,
+  // not lands, not win-conditions). Basics are never cut here — they're the mana base.
   let mainCount = sumQty(trimmedMainboard);
   if (mainCount > targetMain) {
-    const sorted = [...trimmedMainboard]
-      .map((line, idx) => ({ line, idx }))
-      .sort((a, b) => {
-        const ba = isBasicLand(a.line.name);
-        const bb = isBasicLand(b.line.name);
-        if (ba !== bb) return ba ? 1 : -1;
-        return b.line.quantity - a.line.quantity;
-      });
-    let excess = mainCount - targetMain;
-    for (const { idx } of sorted) {
-      if (excess <= 0) break;
-      const take = Math.min(excess, trimmedMainboard[idx].quantity);
-      trimmedMainboard[idx].quantity -= take;
-      excess -= take;
-    }
+    const totalExcess = mainCount - targetMain;
+    let excess = totalExcess;
+    const scored = trimmedMainboard.map((line, idx) => ({
+      idx,
+      line,
+      ...importanceScore(line, idx),
+    }));
+    scored.sort((a, b) => a.score - b.score);
+
+    const cutSummary: Array<{ name: string; count: number }> = [];
+    const cutFrom = (predicate: (s: (typeof scored)[number]) => boolean) => {
+      for (const item of scored) {
+        if (excess <= 0) break;
+        if (!predicate(item)) continue;
+        const current = trimmedMainboard[item.idx].quantity;
+        if (current <= 0) continue;
+        const take = Math.min(excess, current);
+        trimmedMainboard[item.idx].quantity -= take;
+        excess -= take;
+        cutSummary.push({ name: item.line.name, count: take });
+      }
+    };
+
+    // Pass 1: cut non-land, non-essential cards (the actual fluff).
+    cutFrom((s) => !s.isLand);
+    // Pass 2: if we still have to lose cards, trim non-basic lands next.
+    cutFrom((s) => s.isLand && !s.isBasic);
+    // Pass 3: last resort — touch basics only if the deck somehow has no other cards left.
+    cutFrom((s) => s.isBasic);
+
     trimmedMainboard = trimmedMainboard.filter((l) => l.quantity > 0);
+
+    const cutList = cutSummary
+      .slice(0, 6)
+      .map((c) => (c.count > 1 ? `${c.count}x ${c.name}` : c.name))
+      .join(", ");
+    const more = cutSummary.length > 6 ? ` (+${cutSummary.length - 6} more)` : "";
     adjustments.push(
-      `Mainboard had too many cards; removed ${mainCount - targetMain} copies to reach ${targetMain}.`,
+      `Mainboard was ${totalExcess} card${totalExcess === 1 ? "" : "s"} over ${targetMain}; cut the lowest-impact picks${cutList ? `: ${cutList}${more}` : ""}.`,
     );
     mainCount = sumQty(trimmedMainboard);
   }
@@ -366,18 +429,29 @@ function trimDeckToCollection(
     }
     trimmedSideboard = [];
   } else if (sumQty(trimmedSideboard) > maxSide) {
-    const sortedSb = [...trimmedSideboard]
-      .map((line, idx) => ({ line, idx }))
-      .sort((a, b) => b.line.quantity - a.line.quantity);
-    let excessSb = sumQty(trimmedSideboard) - maxSide;
-    for (const { idx } of sortedSb) {
+    const totalExcessSb = sumQty(trimmedSideboard) - maxSide;
+    let excessSb = totalExcessSb;
+    const scoredSb = trimmedSideboard
+      .map((line, idx) => ({ idx, line, ...importanceScore(line, idx) }))
+      .sort((a, b) => a.score - b.score);
+    const cutSummarySb: Array<{ name: string; count: number }> = [];
+    for (const item of scoredSb) {
       if (excessSb <= 0) break;
-      const take = Math.min(excessSb, trimmedSideboard[idx].quantity);
-      trimmedSideboard[idx].quantity -= take;
+      const current = trimmedSideboard[item.idx].quantity;
+      if (current <= 0) continue;
+      const take = Math.min(excessSb, current);
+      trimmedSideboard[item.idx].quantity -= take;
       excessSb -= take;
+      cutSummarySb.push({ name: item.line.name, count: take });
     }
     trimmedSideboard = trimmedSideboard.filter((l) => l.quantity > 0);
-    adjustments.push(`Sideboard trimmed to the ${maxSide}-card max.`);
+    const cutList = cutSummarySb
+      .slice(0, 4)
+      .map((c) => (c.count > 1 ? `${c.count}x ${c.name}` : c.name))
+      .join(", ");
+    adjustments.push(
+      `Sideboard trimmed to the ${maxSide}-card max; cut lowest-impact picks${cutList ? `: ${cutList}` : ""}.`,
+    );
   }
 
   return {
