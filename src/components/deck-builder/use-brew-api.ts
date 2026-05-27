@@ -8,6 +8,46 @@ type StreamEvent =
   | { type: "done"; result: DeckResult }
   | { type: "error"; error: string };
 
+function dispatchSseEvent(
+  event: string,
+  data: string,
+  onEvent: (ev: StreamEvent) => void,
+): void {
+  if (event === "progress") {
+    const parsed = JSON.parse(data) as {
+      type?: string;
+      message?: string;
+      delta?: string;
+    };
+    onEvent({
+      type: "progress",
+      status: parsed.type === "status" ? parsed.message : undefined,
+      tokenDelta: parsed.type === "token" ? parsed.delta : undefined,
+    });
+  } else if (event === "done") {
+    const payload = JSON.parse(data);
+    onEvent({
+      type: "done",
+      result: {
+        deck: payload.deck,
+        enriched: payload.enriched,
+        validation: payload.validation,
+      },
+    });
+  } else if (event === "error") {
+    const payload = JSON.parse(data);
+    onEvent({ type: "error", error: payload.error ?? "Build failed" });
+  }
+}
+
+function drainSseBuffer(buffer: string, onEvent: (ev: StreamEvent) => void): string {
+  const { events, rest } = parseSseChunk(buffer);
+  for (const { event, data } of events) {
+    dispatchSseEvent(event, data, onEvent);
+  }
+  return rest;
+}
+
 async function readSse(
   res: Response,
   onEvent: (ev: StreamEvent) => void,
@@ -18,37 +58,20 @@ async function readSse(
   let buffer = "";
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const { events, rest } = parseSseChunk(buffer);
-    buffer = rest;
-    for (const { event, data } of events) {
-      if (event === "progress") {
-        const parsed = JSON.parse(data) as {
-          type?: string;
-          message?: string;
-          delta?: string;
-        };
-        onEvent({
-          type: "progress",
-          status: parsed.type === "status" ? parsed.message : undefined,
-          tokenDelta: parsed.type === "token" ? parsed.delta : undefined,
-        });
-      } else if (event === "done") {
-        const payload = JSON.parse(data);
-        onEvent({
-          type: "done",
-          result: {
-            deck: payload.deck,
-            enriched: payload.enriched,
-            validation: payload.validation,
-          },
-        });
-      } else if (event === "error") {
-        const payload = JSON.parse(data);
-        onEvent({ type: "error", error: payload.error ?? "Build failed" });
-      }
+    // The final read often has done:true AND the last bytes in value — we must
+    // parse those before exiting or the terminal "done" event is never handled.
+    if (value) {
+      buffer += decoder.decode(value, { stream: !done });
+      buffer = drainSseBuffer(buffer, onEvent);
     }
+    if (done) break;
+  }
+  // Defensive: if the stream closed mid-frame, force-parse any trailing event.
+  if (buffer.trim()) {
+    drainSseBuffer(
+      buffer.endsWith("\n\n") ? buffer : `${buffer}\n\n`,
+      onEvent,
+    );
   }
 }
 
