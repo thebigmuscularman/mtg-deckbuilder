@@ -331,9 +331,9 @@ export function DeckBuilderApp() {
               {FORMATS[format].description}
             </p>
 
-            <label className="mb-3 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
+            <div className="mb-3 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
               <span>
-                Colors <span className="text-stone-600">(optional)</span>
+                Color combo <span className="text-stone-600">(optional)</span>
               </span>
               {colors.length > 0 && (
                 <button
@@ -344,42 +344,62 @@ export function DeckBuilderApp() {
                   Clear
                 </button>
               )}
-            </label>
-            <div className="mb-2 flex flex-wrap gap-2">
-              {(Object.keys(COLOR_META) as Color[]).map((c) => {
-                const meta = COLOR_META[c];
-                const active = colors.includes(c);
-                return (
-                  <button
-                    key={c}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() =>
-                      setColors((prev) =>
-                        prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c],
-                      )
-                    }
-                    className={`card-hover flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
-                      active
-                        ? `${meta.bg} ${meta.text} shadow-lg ring-2 ${meta.ring}`
-                        : "bg-stone-800/80 text-stone-400 ring-1 ring-stone-700/60 hover:bg-stone-700/80 hover:text-stone-200"
-                    }`}
-                  >
-                    <span
-                      className={`flex h-6 w-6 items-center justify-center rounded-full text-xs ${
-                        active ? "bg-black/10" : "bg-stone-700/60"
+            </div>
+            <fieldset className="mb-2">
+              <legend className="sr-only">Pick the colors you want in the deck</legend>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                {(Object.keys(COLOR_META) as Color[]).map((c) => {
+                  const meta = COLOR_META[c];
+                  const active = colors.includes(c);
+                  const id = `color-${c}`;
+                  return (
+                    <label
+                      key={c}
+                      htmlFor={id}
+                      className={`card-hover flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
+                        active
+                          ? `${meta.bg} ${meta.text} shadow-lg ring-2 ${meta.ring}`
+                          : "bg-stone-800/80 text-stone-300 ring-1 ring-stone-700/60 hover:bg-stone-700/80 hover:text-stone-100"
                       }`}
                     >
-                      {meta.symbol}
-                    </span>
-                    {meta.name}
-                  </button>
-                );
-              })}
-            </div>
+                      <input
+                        id={id}
+                        type="checkbox"
+                        checked={active}
+                        onChange={() =>
+                          setColors((prev) =>
+                            prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c],
+                          )
+                        }
+                        className="sr-only"
+                      />
+                      <span
+                        aria-hidden="true"
+                        className={`flex h-5 w-5 items-center justify-center rounded-md border text-xs font-bold transition ${
+                          active
+                            ? "border-black/40 bg-black/20 text-current"
+                            : "border-stone-500 bg-stone-900/60 text-transparent"
+                        }`}
+                      >
+                        ✓
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        className={`flex h-7 w-7 items-center justify-center rounded-full text-sm ${
+                          active ? "bg-black/10" : "bg-stone-700/60"
+                        }`}
+                      >
+                        {meta.symbol}
+                      </span>
+                      <span className="flex-1">{meta.name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
             <p className="mb-6 text-xs italic text-stone-500">
               {colors.length === 0
-                ? "Pick none to let the AI choose any colors that fit your collection."
+                ? "Tick none to let the AI choose any colors that fit your collection."
                 : format === "commander"
                 ? `Commander must have exactly these ${colors.length} color${colors.length === 1 ? "" : "s"} in its identity.`
                 : `Deck will be limited to these ${colors.length} color${colors.length === 1 ? "" : "s"}.`}
