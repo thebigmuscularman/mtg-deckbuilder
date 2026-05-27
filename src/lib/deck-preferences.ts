@@ -1,5 +1,11 @@
 import type { PowerLevelId } from "./power-levels";
 import { POWER_LEVELS } from "./power-levels";
+import {
+  COMBO_CARD_KEYS,
+  EXTRA_TURN_CARD_KEYS,
+  isExactCardName,
+  MLD_CARD_KEYS,
+} from "./house-rules-cards";
 import type { ScryfallCard } from "./types";
 import { getDisplayName, nameKey } from "./scryfall";
 
@@ -58,47 +64,10 @@ export function isNameAvoided(name: string, avoidKeys: Set<string>): boolean {
   return avoidKeys.has(nameKey(name));
 }
 
-const MLD_NAME_FRAGMENTS = [
-  "armageddon",
-  "ravages of war",
-  "jokulhaups",
-  "obliterate",
-  "fall of the thran",
-  "wildfire",
-];
-
-const COMBO_NAME_FRAGMENTS = [
-  "thassa's oracle",
-  "thassas oracle",
-  "demonic consultation",
-  "tainted pact",
-  "isochron scepter",
-  "dramatic reversal",
-  "heliod, sun-crowned",
-  "walking ballista",
-  "kiki-jiki",
-  "splinter twin",
-  "underworld breach",
-  "thoracle",
-];
-
-const EXTRA_TURN_NAME_FRAGMENTS = [
-  "time warp",
-  "temporal manipulation",
-  "capture of jingzhou",
-  "alrund's epiphany",
-  "expropriate",
-];
-
 function oracleText(card: ScryfallCard): string {
   const main = card.oracle_text ?? "";
   const face = card.card_faces?.[0]?.oracle_text ?? "";
   return `${main} ${face}`.toLowerCase();
-}
-
-function nameMatchesFragments(cardName: string, fragments: string[]): boolean {
-  const n = nameKey(cardName);
-  return fragments.some((f) => n.includes(nameKey(f)));
 }
 
 export function cardViolatesHouseRules(
@@ -110,7 +79,7 @@ export function cardViolatesHouseRules(
 
   if (rules.noMassLandDestruction) {
     if (
-      nameMatchesFragments(name, MLD_NAME_FRAGMENTS) ||
+      isExactCardName(name, MLD_CARD_KEYS) ||
       /\bdestroy all lands\b/.test(text) ||
       /\beach player sacrifices all lands\b/.test(text)
     ) {
@@ -120,10 +89,9 @@ export function cardViolatesHouseRules(
 
   if (rules.noInfiniteCombos) {
     if (
-      nameMatchesFragments(name, COMBO_NAME_FRAGMENTS) ||
-      (/\binfinite\b/.test(text) &&
-        (/\bwin the game\b/.test(text) || /\bdamage\b/.test(text))) ||
-      /\byou win the game\b/.test(text)
+      isExactCardName(name, COMBO_CARD_KEYS) ||
+      /\byou win the game\b/.test(text) ||
+      (/\binfinite\b/.test(text) && /\bwin the game\b/.test(text))
     ) {
       return "infinite / game-winning combo piece";
     }
@@ -131,9 +99,9 @@ export function cardViolatesHouseRules(
 
   if (rules.noExtraTurns) {
     if (
-      nameMatchesFragments(name, EXTRA_TURN_NAME_FRAGMENTS) ||
-      /\bextra turn\b/.test(text) ||
-      /\btake an extra turn\b/.test(text)
+      isExactCardName(name, EXTRA_TURN_CARD_KEYS) ||
+      /\btake an extra turn\b/.test(text) ||
+      /\bextra turns?\b/.test(text)
     ) {
       return "extra turn effect";
     }

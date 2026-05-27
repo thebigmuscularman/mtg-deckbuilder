@@ -1,18 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FORMATS } from "@/lib/formats";
 import {
   DEFAULT_HOUSE_RULES,
   type HouseRules,
 } from "@/lib/deck-preferences";
 import {
   DEFAULT_POWER_LEVEL,
-  POWER_LEVELS,
   isPowerLevelId,
   type PowerLevelId,
 } from "@/lib/power-levels";
-import { collectionEstimatedValue, formatUsd } from "@/lib/prices";
+import { collectionEstimatedValue } from "@/lib/prices";
 import {
   loadCollection,
   loadDeckHistory,
@@ -26,60 +24,21 @@ import type {
   BuiltDeck,
   FormatId,
   ResolvedCollectionCard,
-  ScryfallCard,
 } from "@/lib/types";
+import { validateDeck } from "@/lib/deck-validation";
 import { exportDeck } from "@/lib/export-formats";
+import { nameKey } from "@/lib/scryfall";
 import { DeckDisplay } from "./DeckDisplay";
-
-type Step = "upload" | "review" | "deck";
-type Color = "W" | "U" | "B" | "R" | "G";
-type UploadMode = "file" | "paste";
-
-type DeckResult = {
-  deck: BuiltDeck;
-  enriched: {
-    mainboard: Array<{ name: string; quantity: number; card: ScryfallCard | null }>;
-    sideboard: Array<{ name: string; quantity: number; card: ScryfallCard | null }>;
-    commander: ScryfallCard | null;
-  };
-  validation: { valid: boolean; errors: string[]; warnings: string[] };
-};
-
-const COLOR_META: Record<
-  Color,
-  { name: string; bg: string; ring: string; text: string; ms: string; pip: string }
-> = {
-  W: { name: "White", bg: "bg-yellow-50", ring: "ring-yellow-200", text: "text-yellow-900", ms: "ms-w", pip: "bg-[#fdfbce] text-[#7c5e0a]" },
-  U: { name: "Blue", bg: "bg-sky-300", ring: "ring-sky-400", text: "text-sky-950", ms: "ms-u", pip: "bg-[#bcdaf7] text-[#0c4a6e]" },
-  B: { name: "Black", bg: "bg-stone-800", ring: "ring-stone-600", text: "text-stone-100", ms: "ms-b", pip: "bg-[#1f1d1c] text-[#d6c4cb] ring-1 ring-stone-600" },
-  R: { name: "Red", bg: "bg-red-400", ring: "ring-red-500", text: "text-red-950", ms: "ms-r", pip: "bg-[#f19b79] text-[#7c2d12]" },
-  G: { name: "Green", bg: "bg-green-400", ring: "ring-green-500", text: "text-green-950", ms: "ms-g", pip: "bg-[#9fcba6] text-[#14532d]" },
-};
-
-const BUILD_VARIANTS = [
-  { label: "Aggro", hint: "Build an aggressive deck — low curve, max pressure, fast wins." },
-  { label: "Midrange", hint: "Build a midrange deck — resilient two-for-ones, flexible interaction." },
-  { label: "Control", hint: "Build a control deck — removal, card draw, late-game finishers." },
-] as const;
-
-function parseSseChunk(buffer: string): {
-  events: Array<{ event: string; data: string }>;
-  rest: string;
-} {
-  const events: Array<{ event: string; data: string }> = [];
-  const parts = buffer.split("\n\n");
-  const rest = parts.pop() ?? "";
-  for (const part of parts) {
-    let event = "message";
-    let data = "";
-    for (const line of part.split("\n")) {
-      if (line.startsWith("event:")) event = line.slice(6).trim();
-      else if (line.startsWith("data:")) data += line.slice(5).trim();
-    }
-    if (data) events.push({ event, data });
-  }
-  return { events, rest };
-}
+import { ReviewStep } from "./deck-builder/ReviewStep";
+import { UploadStep } from "./deck-builder/UploadStep";
+import {
+  BUILD_VARIANTS,
+  parseSseChunk,
+  type Color,
+  type DeckResult,
+  type Step,
+  type UploadMode,
+} from "./deck-builder/types";
 
 export function DeckBuilderApp() {
   const [hydrated, setHydrated] = useState(false);
@@ -513,6 +472,87 @@ export function DeckBuilderApp() {
     [activeResult, activeTab, buildPayload],
   );
 
+  const playableResolved = useMemo(
+    () => resolved.filter((r) => r.card) as ResolvedCollectionCard[],
+    [resolved],
+  );
+
+  const revalidateDeckResult = useCallback(
+    (deck: BuiltDeck): DeckResult => {
+      const validation = validateDeck(deck, playableResolved);
+      return {
+        deck,
+        validation: {
+          valid: validation.valid,
+          errors: validation.errors,
+          warnings: validation.warnings,
+        },
+        enriched: {
+          mainboard: validation.enrichedMainboard,
+          sideboard: validation.enrichedSideboard,
+          commander: validation.commanderCard,
+        },
+      };
+    },
+    [playableResolved],
+  );
+
+  const patchActiveDeck = useCallback(
+    (mutate: (deck: BuiltDeck) => BuiltDeck) => {
+      setDeckTabs((tabs) =>
+        tabs.map((t, i) => {
+          if (i !== activeTab) return t;
+          const deck = mutate(t.result.deck);
+          return { ...t, result: revalidateDeckResult(deck) };
+        }),
+      );
+    },
+    [activeTab, revalidateDeckResult],
+  );
+
+  const setCardQuantity = useCallback(
+    (
+      cardName: string,
+      zone: "mainboard" | "sideboard" | "commander",
+      quantity: number,
+    ) => {
+      const key = nameKey(cardName);
+      patchActiveDeck((deck) => {
+        if (zone === "commander") return deck;
+        const list = zone === "mainboard" ? [...deck.mainboard] : [...deck.sideboard];
+        const idx = list.findIndex((l) => nameKey(l.name) === key);
+        if (idx < 0) return deck;
+        if (quantity <= 0) {
+          list.splice(idx, 1);
+        } else {
+          list[idx] = { ...list[idx], quantity };
+        }
+        return zone === "mainboard"
+          ? { ...deck, mainboard: list }
+          : { ...deck, sideboard: list };
+      });
+    },
+    [patchActiveDeck],
+  );
+
+  const removeCard = useCallback(
+    (cardName: string, zone: "mainboard" | "sideboard" | "commander") => {
+      const key = nameKey(cardName);
+      patchActiveDeck((deck) => {
+        if (zone === "commander") {
+          return { ...deck, commander: null, commanderReason: undefined };
+        }
+        const list =
+          zone === "mainboard" ? deck.mainboard : deck.sideboard;
+        const filtered = list.filter((l) => nameKey(l.name) !== key);
+        return zone === "mainboard"
+          ? { ...deck, mainboard: filtered }
+          : { ...deck, sideboard: filtered };
+      });
+    },
+    [patchActiveDeck],
+  );
+
   const downloadDeck = useCallback(() => {
     if (!activeResult) return;
     const text = exportDeck(activeResult.deck, "plain");
@@ -681,411 +721,43 @@ export function DeckBuilderApp() {
       )}
 
       {step === "upload" && (
-        <div className="fade-in-up space-y-4">
-          <div className="flex justify-center gap-2">
-            <button
-              type="button"
-              onClick={() => setUploadMode("file")}
-              className={`rounded-lg px-4 py-2 text-sm font-semibold ${
-                uploadMode === "file"
-                  ? "bg-amber-600 text-stone-950"
-                  : "bg-stone-800 text-stone-400"
-              }`}
-            >
-              Upload file
-            </button>
-            <button
-              type="button"
-              onClick={() => setUploadMode("paste")}
-              className={`rounded-lg px-4 py-2 text-sm font-semibold ${
-                uploadMode === "paste"
-                  ? "bg-amber-600 text-stone-950"
-                  : "bg-stone-800 text-stone-400"
-              }`}
-            >
-              Paste list
-            </button>
-          </div>
-
-          {uploadMode === "file" ? (
-            <div className="glass-panel relative overflow-hidden rounded-3xl p-10 text-center sm:p-14">
-              <label className="relative block cursor-pointer">
-                <input
-                  type="file"
-                  accept=".txt,text/plain"
-                  className="hidden"
-                  disabled={loading}
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) void handleFile(f);
-                  }}
-                />
-                <span className="inline-flex flex-col items-center gap-5">
-                  <span className="text-xl font-semibold text-amber-50">
-                    {loading ? "Consulting Scryfall…" : "Upload your collection (.txt)"}
-                  </span>
-                  <span className="max-w-md text-sm text-stone-400">
-                    Moxfield / Manabox format supported.{" "}
-                    <a href="/sample-collection.txt" download className="text-amber-400 underline">
-                      Sample file
-                    </a>
-                  </span>
-                </span>
-              </label>
-            </div>
-          ) : (
-            <div className="glass-panel rounded-2xl p-6">
-              <textarea
-                value={pasteText}
-                onChange={(e) => setPasteText(e.target.value)}
-                placeholder={"1 Lightning Bolt (MH2) 187\n4 Island (DMU) 280\n..."}
-                rows={12}
-                className="mb-4 w-full rounded-xl border border-stone-700/60 bg-stone-950/60 px-4 py-3 font-mono text-sm text-stone-100 placeholder:text-stone-600 focus:border-amber-500 focus:outline-none"
-              />
-              <button
-                type="button"
-                disabled={loading || !pasteText.trim()}
-                onClick={() => void resolveCollection(pasteText)}
-                className="rounded-xl bg-amber-600 px-6 py-2.5 font-bold text-stone-950 disabled:opacity-50"
-              >
-                {loading ? "Resolving…" : "Resolve collection"}
-              </button>
-            </div>
-          )}
-        </div>
+        <UploadStep
+          uploadMode={uploadMode}
+          setUploadMode={setUploadMode}
+          pasteText={pasteText}
+          setPasteText={setPasteText}
+          loading={loading}
+          onFile={(f) => void handleFile(f)}
+          onResolvePaste={() => void resolveCollection(pasteText)}
+        />
       )}
 
       {step === "review" && summary && (
-        <div className="fade-in-up space-y-6">
-          <div className="grid gap-4 sm:grid-cols-4">
-            <Stat label="Lines" value={summary.total} />
-            <Stat label="Unique cards" value={summary.unique} />
-            <Stat
-              label="Unresolved"
-              value={summary.unresolved}
-              warn={summary.unresolved > 0}
-            />
-            <Stat
-              label="Collection value"
-              value={collectionValue > 0 ? formatUsd(collectionValue) : "—"}
-            />
-          </div>
-
-          <div className="glass-panel rounded-2xl p-6 sm:p-8">
-            <label className="mb-3 block text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
-              Format
-            </label>
-            <div className="mb-2 flex flex-wrap gap-2">
-              {(Object.keys(FORMATS) as FormatId[]).map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setFormat(id)}
-                  className={`card-hover rounded-xl px-5 py-2.5 text-sm font-semibold transition ${
-                    format === id
-                      ? "bg-gradient-to-br from-amber-400 to-amber-600 text-stone-950 shadow-lg"
-                      : "bg-stone-800/80 text-stone-300 ring-1 ring-stone-700/60"
-                  }`}
-                >
-                  {FORMATS[id].label}
-                </button>
-              ))}
-            </div>
-            <p className="mb-6 text-xs italic text-stone-500">
-              {FORMATS[format].description}
-            </p>
-
-            <div className="mb-3 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
-              <span>
-                Color combo <span className="text-stone-600">(optional)</span>
-              </span>
-              {colors.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setColors([])}
-                  className="text-[0.65rem] font-normal normal-case tracking-normal text-stone-500 hover:text-amber-300"
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-            <fieldset className="mb-2">
-              <legend className="sr-only">Pick deck colors</legend>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-                {(Object.keys(COLOR_META) as Color[]).map((c) => {
-                  const meta = COLOR_META[c];
-                  const active = colors.includes(c);
-                  const id = `color-${c}`;
-                  return (
-                    <label
-                      key={c}
-                      htmlFor={id}
-                      className={`card-hover flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold ${
-                        active
-                          ? `${meta.bg} ${meta.text} shadow-lg ring-2 ${meta.ring}`
-                          : "bg-stone-800/80 text-stone-300 ring-1 ring-stone-700/60"
-                      }`}
-                    >
-                      <input
-                        id={id}
-                        type="checkbox"
-                        checked={active}
-                        onChange={() =>
-                          setColors((prev) =>
-                            prev.includes(c)
-                              ? prev.filter((x) => x !== c)
-                              : [...prev, c],
-                          )
-                        }
-                        className="sr-only"
-                      />
-                      <span
-                        className={`flex h-5 w-5 items-center justify-center rounded-md border text-xs font-bold ${
-                          active
-                            ? "border-black/40 bg-black/20 text-current"
-                            : "border-stone-500 bg-stone-900/60 text-transparent"
-                        }`}
-                      >
-                        ✓
-                      </span>
-                      <span
-                        className={`flex h-7 w-7 items-center justify-center rounded-full text-base shadow-inner ${meta.pip}`}
-                      >
-                        <i className={`ms ${meta.ms}`} />
-                      </span>
-                      <span className="flex-1">{meta.name}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </fieldset>
-            <p className="mb-6 text-xs italic text-stone-500">
-              {colors.length === 0
-                ? "Tick none to let the AI choose colors."
-                : format === "commander"
-                  ? `Commander identity must be exactly ${colors.join("")}.`
-                  : `Deck limited to ${colors.join("")}.`}
-            </p>
-
-            <label className="mb-3 block text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
-              Strategy <span className="text-stone-600">(optional)</span>
-            </label>
-            <input
-              type="text"
-              value={strategy}
-              onChange={(e) => setStrategy(e.target.value)}
-              placeholder="e.g. tokens, reanimator, burn…"
-              className="mb-4 w-full rounded-xl border border-stone-700/60 bg-stone-950/60 px-4 py-3 text-stone-100 placeholder:text-stone-600 focus:border-amber-500 focus:outline-none"
-            />
-
-            <div className="mb-7 rounded-2xl border border-amber-700/30 bg-amber-950/10 p-5">
-              <div className="mb-1 flex items-baseline justify-between gap-3">
-                <p className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-amber-500/80">
-                  Power level
-                </p>
-                <p className="text-[0.65rem] uppercase tracking-wider text-stone-500">
-                  Card power · not price
-                </p>
-              </div>
-              <h3 className="mb-2 text-lg font-bold text-amber-100">
-                How powerful should the deck be?
-              </h3>
-              <p className="mb-4 text-xs text-stone-400">
-                Picks the kind of cards the AI reaches for — staples, fast mana,
-                tutors, combos. Use the budget cap below for a price ceiling.
-              </p>
-
-              <div
-                role="group"
-                aria-label="Power level"
-                className="mb-3 flex h-2 w-full overflow-hidden rounded-full ring-1 ring-stone-800/80"
-              >
-                {(Object.keys(POWER_LEVELS) as PowerLevelId[]).map((id) => {
-                  const active = powerLevel === id;
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => setPowerLevel(id)}
-                      aria-label={POWER_LEVELS[id].label}
-                      aria-pressed={active}
-                      className={`h-full flex-1 transition ${
-                        active
-                          ? "bg-gradient-to-r from-amber-400 to-amber-600"
-                          : "bg-stone-800/70 hover:bg-stone-700/70"
-                      }`}
-                    />
-                  );
-                })}
-              </div>
-              <div className="mb-4 flex justify-between text-[0.6rem] uppercase tracking-wider text-stone-500">
-                <span>1 · Casual</span>
-                <span>10 · cEDH</span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {(Object.keys(POWER_LEVELS) as PowerLevelId[]).map((id) => {
-                  const meta = POWER_LEVELS[id];
-                  const active = powerLevel === id;
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => setPowerLevel(id)}
-                      className={`card-hover rounded-xl px-3 py-2.5 text-left text-sm transition ${
-                        active
-                          ? "bg-gradient-to-br from-amber-400 to-amber-600 text-stone-950 shadow-lg"
-                          : "bg-stone-800/80 text-stone-300 ring-1 ring-stone-700/60"
-                      }`}
-                      aria-pressed={active}
-                    >
-                      <span className="block font-bold">{meta.label}</span>
-                      <span
-                        className={`block text-[0.65rem] uppercase tracking-wider ${
-                          active ? "text-stone-900/80" : "text-stone-500"
-                        }`}
-                      >
-                        {meta.bracket}
-                      </span>
-                      <span
-                        className={`mt-1 block text-[0.7rem] leading-snug ${
-                          active ? "text-stone-900/90" : "text-stone-400"
-                        }`}
-                      >
-                        {meta.short}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="mt-3 text-xs italic text-stone-500">
-                {POWER_LEVELS[powerLevel].hint}
-              </p>
-            </div>
-
-            <label className="mb-3 block text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
-              Budget cap <span className="text-stone-600">(optional, $ per card)</span>
-            </label>
-            <input
-              type="number"
-              min={0}
-              step={0.5}
-              value={budgetMax || ""}
-              onChange={(e) => setBudgetMax(parseFloat(e.target.value) || 0)}
-              placeholder="e.g. 5 — no card over $5"
-              className="mb-2 w-full rounded-xl border border-stone-700/60 bg-stone-950/60 px-4 py-3 text-stone-100 placeholder:text-stone-600 focus:border-amber-500 focus:outline-none"
-            />
-            <p className="mb-7 text-xs text-stone-500">
-              Caps the price of any single card in USD. For card power, use the
-              power level above.
-            </p>
-
-            <label className="mb-3 block text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
-              Ban list <span className="text-stone-600">(optional)</span>
-            </label>
-            <textarea
-              value={avoidList}
-              onChange={(e) => setAvoidList(e.target.value)}
-              placeholder="One card per line or comma-separated — e.g. Sol Ring, Dockside Extortionist"
-              rows={3}
-              className="mb-4 w-full resize-y rounded-xl border border-stone-700/60 bg-stone-950/60 px-4 py-3 text-sm text-stone-100 placeholder:text-stone-600 focus:border-amber-500 focus:outline-none"
-            />
-            <p className="mb-6 text-xs text-stone-500">
-              Banned cards are excluded from AI picks and trimmed from the final
-              deck if they slip through.
-            </p>
-
-            <label className="mb-3 block text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
-              House rules
-            </label>
-            <div className="mb-4 space-y-2">
-              {(
-                [
-                  [
-                    "noMassLandDestruction",
-                    "No mass land destruction",
-                  ],
-                  ["noInfiniteCombos", "No infinite / game-winning combos"],
-                  ["noExtraTurns", "No extra-turn engines"],
-                ] as const
-              ).map(([key, label]) => (
-                <label
-                  key={key}
-                  className="flex cursor-pointer items-center gap-3 rounded-xl bg-stone-900/40 px-4 py-2.5 ring-1 ring-stone-800/80"
-                >
-                  <input
-                    type="checkbox"
-                    checked={houseRules[key]}
-                    onChange={(e) =>
-                      setHouseRules((prev) => ({
-                        ...prev,
-                        [key]: e.target.checked,
-                      }))
-                    }
-                    className="h-4 w-4 rounded border-stone-600 bg-stone-950 text-amber-500 focus:ring-amber-500"
-                  />
-                  <span className="text-sm text-stone-200">{label}</span>
-                </label>
-              ))}
-            </div>
-
-            {format === "commander" && (
-              <>
-                <label className="mb-3 flex cursor-pointer items-center gap-3 rounded-xl bg-stone-900/40 px-4 py-3 ring-1 ring-stone-800/80">
-                  <input
-                    type="checkbox"
-                    checked={politicsFriendly}
-                    onChange={(e) => setPoliticsFriendly(e.target.checked)}
-                    className="h-4 w-4 rounded border-stone-600 bg-stone-950 text-amber-500 focus:ring-amber-500"
-                  />
-                  <span className="text-sm text-stone-200">
-                    <span className="font-semibold text-amber-200/90">
-                      Politics-friendly Commander
-                    </span>
-                    <span className="mt-0.5 block text-xs text-stone-500">
-                      Group-hug / pillowfort vibes — wins without making enemies
-                    </span>
-                  </span>
-                </label>
-                <div className="mb-7" />
-              </>
-            )}
-
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                disabled={loading || summary.unique < 10}
-                onClick={() => void buildDeckStream()}
-                className="glow-button rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 px-6 py-3 font-bold text-stone-950 disabled:opacity-50"
-              >
-                {loading ? "Brewing…" : "Build deck (live)"}
-              </button>
-              <button
-                type="button"
-                disabled={loading || summary.unique < 10}
-                onClick={() => void buildDeck()}
-                className="rounded-xl bg-stone-800 px-5 py-3 text-sm font-semibold text-amber-200 ring-1 ring-stone-700 disabled:opacity-50"
-              >
-                Quick build
-              </button>
-              <button
-                type="button"
-                disabled={loading || summary.unique < 10}
-                onClick={() => void buildThreeDecks()}
-                className="rounded-xl bg-purple-900/50 px-5 py-3 text-sm font-semibold text-purple-200 ring-1 ring-purple-700/50 disabled:opacity-50"
-              >
-                Build 3 archetypes
-              </button>
-              <button
-                type="button"
-                onClick={() => setStep("upload")}
-                className="text-sm text-stone-400 hover:text-amber-300"
-              >
-                ← Change collection
-              </button>
-            </div>
-          </div>
-        </div>
+        <ReviewStep
+          summary={summary}
+          collectionValue={collectionValue}
+          format={format}
+          setFormat={setFormat}
+          colors={colors}
+          setColors={setColors}
+          strategy={strategy}
+          setStrategy={setStrategy}
+          powerLevel={powerLevel}
+          setPowerLevel={setPowerLevel}
+          budgetMax={budgetMax}
+          setBudgetMax={setBudgetMax}
+          avoidList={avoidList}
+          setAvoidList={setAvoidList}
+          houseRules={houseRules}
+          setHouseRules={setHouseRules}
+          politicsFriendly={politicsFriendly}
+          setPoliticsFriendly={setPoliticsFriendly}
+          loading={loading}
+          onBuildStream={() => void buildDeckStream()}
+          onBuild={() => void buildDeck()}
+          onBuildThree={() => void buildThreeDecks()}
+          onChangeCollection={() => setStep("upload")}
+        />
       )}
 
       {step === "deck" && activeResult && (
@@ -1208,6 +880,8 @@ export function DeckBuilderApp() {
             targetPowerLevel={powerLevel}
             onSwapCard={(name, zone) => void swapCard(name, zone)}
             swappingCard={swappingCard}
+            onQuantityChange={setCardQuantity}
+            onRemoveCard={removeCard}
           />
         </div>
       )}
@@ -1237,33 +911,3 @@ export function DeckBuilderApp() {
   );
 }
 
-function Stat({
-  label,
-  value,
-  warn,
-}: {
-  label: string;
-  value: number | string;
-  warn?: boolean;
-}) {
-  return (
-    <div
-      className={`card-hover relative overflow-hidden rounded-2xl p-5 ring-1 ${
-        warn
-          ? "bg-gradient-to-br from-amber-950/50 to-stone-950/80 ring-amber-700/40"
-          : "bg-gradient-to-br from-stone-900/80 to-stone-950/80 ring-stone-800/60"
-      }`}
-    >
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
-        {label}
-      </p>
-      <p
-        className={`mt-1 text-2xl font-black tabular-nums ${
-          warn ? "text-amber-300" : "text-amber-100"
-        }`}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}

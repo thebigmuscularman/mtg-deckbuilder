@@ -1,28 +1,11 @@
 import { z } from "zod";
 import { buildDeckWithAI, type DeckBuildProgress } from "@/lib/ai-deckbuilder";
-import { brewPreferencesFields, brewPreferencesFromBody } from "@/lib/api-brew-body";
+import { brewPreferencesFromBody } from "@/lib/api-brew-body";
+import { brewRequestFields } from "@/lib/api-schemas";
 import { validateDeck } from "@/lib/deck-validation";
 import type { FormatId, ResolvedCollectionCard } from "@/lib/types";
 
-const bodySchema = z.object({
-  format: z.enum(["standard", "modern", "commander"]),
-  resolved: z.array(
-    z.object({
-      entry: z.object({
-        name: z.string(),
-        quantity: z.number(),
-        set: z.string().optional(),
-        collectorNumber: z.string().optional(),
-      }),
-      card: z.any().nullable(),
-      error: z.string().optional(),
-    }),
-  ),
-  strategy: z.string().optional(),
-  colors: z.array(z.enum(["W", "U", "B", "R", "G"])).optional(),
-  budgetMax: z.number().positive().optional(),
-  ...brewPreferencesFields,
-});
+const bodySchema = z.object(brewRequestFields);
 
 export const maxDuration = 120;
 

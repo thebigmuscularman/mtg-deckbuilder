@@ -40,6 +40,15 @@ interface DeckDisplayProps {
   onSwapCard?: (name: string, zone: "mainboard" | "sideboard" | "commander") => void;
   swappingCard?: string | null;
   targetPowerLevel?: PowerLevelId;
+  onQuantityChange?: (
+    name: string,
+    zone: "mainboard" | "sideboard" | "commander",
+    quantity: number,
+  ) => void;
+  onRemoveCard?: (
+    name: string,
+    zone: "mainboard" | "sideboard" | "commander",
+  ) => void;
 }
 
 function manaClass(inner: string): string {
@@ -66,11 +75,19 @@ function CardRow({
   zone,
   onSwap,
   swapping,
+  onQuantityChange,
+  onRemove,
 }: {
   line: EnrichedLine;
   zone: "mainboard" | "sideboard" | "commander";
   onSwap?: (name: string, zone: "mainboard" | "sideboard" | "commander") => void;
   swapping?: boolean;
+  onQuantityChange?: (
+    name: string,
+    zone: "mainboard" | "sideboard" | "commander",
+    quantity: number,
+  ) => void;
+  onRemove?: (name: string, zone: "mainboard" | "sideboard" | "commander") => void;
 }) {
   const image = line.card ? getCardImage(line.card) : undefined;
   const name = line.card ? getDisplayName(line.card) : line.name;
@@ -115,16 +132,52 @@ function CardRow({
             <span className="font-semibold text-amber-500/90">Why:</span> {line.reason}
           </p>
         )}
-        {onSwap && (
-          <button
-            type="button"
-            disabled={swapping}
-            onClick={() => onSwap(name, zone)}
-            className="mt-2 rounded-lg bg-stone-800/80 px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-wider text-stone-400 ring-1 ring-stone-700/60 transition hover:bg-amber-950/50 hover:text-amber-300 disabled:opacity-50"
-          >
-            {swapping ? "Swapping…" : "↻ Reroll card"}
-          </button>
-        )}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {onQuantityChange && zone !== "commander" && (
+            <div className="flex items-center gap-1 rounded-lg bg-stone-800/80 px-1 py-0.5 ring-1 ring-stone-700/60">
+              <button
+                type="button"
+                aria-label="Decrease quantity"
+                onClick={() =>
+                  onQuantityChange(name, zone, Math.max(1, line.quantity - 1))
+                }
+                className="px-2 py-0.5 text-sm text-stone-300 hover:text-amber-300"
+              >
+                −
+              </button>
+              <span className="min-w-[1.25rem] text-center text-xs tabular-nums text-amber-200">
+                {line.quantity}
+              </span>
+              <button
+                type="button"
+                aria-label="Increase quantity"
+                onClick={() => onQuantityChange(name, zone, line.quantity + 1)}
+                className="px-2 py-0.5 text-sm text-stone-300 hover:text-amber-300"
+              >
+                +
+              </button>
+            </div>
+          )}
+          {onRemove && (
+            <button
+              type="button"
+              onClick={() => onRemove(name, zone)}
+              className="rounded-lg bg-stone-800/80 px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-wider text-rose-400/90 ring-1 ring-stone-700/60 transition hover:bg-rose-950/40 hover:text-rose-300"
+            >
+              Remove
+            </button>
+          )}
+          {onSwap && (
+            <button
+              type="button"
+              disabled={swapping}
+              onClick={() => onSwap(name, zone)}
+              className="rounded-lg bg-stone-800/80 px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-wider text-stone-400 ring-1 ring-stone-700/60 transition hover:bg-amber-950/50 hover:text-amber-300 disabled:opacity-50"
+            >
+              {swapping ? "Swapping…" : "↻ Reroll card"}
+            </button>
+          )}
+        </div>
       </div>
     </li>
   );
@@ -203,12 +256,20 @@ function GroupedSection({
   zone,
   onSwap,
   swappingCard,
+  onQuantityChange,
+  onRemove,
 }: {
   title: string;
   lines: EnrichedLine[];
   zone: "mainboard" | "sideboard";
   onSwap?: (name: string, zone: "mainboard" | "sideboard" | "commander") => void;
   swappingCard?: string | null;
+  onQuantityChange?: (
+    name: string,
+    zone: "mainboard" | "sideboard" | "commander",
+    quantity: number,
+  ) => void;
+  onRemove?: (name: string, zone: "mainboard" | "sideboard" | "commander") => void;
 }) {
   if (!lines.length) return null;
   const groups = groupLinesByType(lines);
@@ -233,6 +294,8 @@ function GroupedSection({
                     zone={zone}
                     onSwap={onSwap}
                     swapping={swappingCard === line.name}
+                    onQuantityChange={onQuantityChange}
+                    onRemove={onRemove}
                   />
                 ))}
               </ul>
@@ -255,6 +318,8 @@ export function DeckDisplay({
   onSwapCard,
   swappingCard,
   targetPowerLevel,
+  onQuantityChange,
+  onRemoveCard,
 }: DeckDisplayProps) {
   const mainboard: EnrichedLine[] =
     enriched?.mainboard ?? deck.mainboard.map((l) => ({ ...l, card: null }));
@@ -420,6 +485,7 @@ export function DeckDisplay({
             zone="commander"
             onSwap={onSwapCard}
             swapping={swappingCard === getDisplayName(commanderCard)}
+            onRemove={onRemoveCard}
           />
         </section>
       )}
@@ -430,6 +496,8 @@ export function DeckDisplay({
         zone="mainboard"
         onSwap={onSwapCard}
         swappingCard={swappingCard}
+        onQuantityChange={onQuantityChange}
+        onRemove={onRemoveCard}
       />
       <GroupedSection
         title="Sideboard"
@@ -437,6 +505,8 @@ export function DeckDisplay({
         zone="sideboard"
         onSwap={onSwapCard}
         swappingCard={swappingCard}
+        onQuantityChange={onQuantityChange}
+        onRemove={onRemoveCard}
       />
 
       {(() => {
