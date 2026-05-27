@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FORMATS } from "@/lib/formats";
 import {
+  DEFAULT_HOUSE_RULES,
+  type HouseRules,
+} from "@/lib/deck-preferences";
+import {
   DEFAULT_POWER_LEVEL,
   POWER_LEVELS,
   isPowerLevelId,
@@ -88,6 +92,9 @@ export function DeckBuilderApp() {
   const [budgetMax, setBudgetMax] = useState<number>(0);
   const [powerLevel, setPowerLevel] =
     useState<PowerLevelId>(DEFAULT_POWER_LEVEL);
+  const [avoidList, setAvoidList] = useState("");
+  const [houseRules, setHouseRules] = useState<HouseRules>(DEFAULT_HOUSE_RULES);
+  const [politicsFriendly, setPoliticsFriendly] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,6 +124,9 @@ export function DeckBuilderApp() {
     if (prefs.strategy) setStrategy(prefs.strategy);
     if (prefs.budgetMax) setBudgetMax(prefs.budgetMax);
     if (isPowerLevelId(prefs.powerLevel)) setPowerLevel(prefs.powerLevel);
+    if (prefs.avoidList !== undefined) setAvoidList(prefs.avoidList);
+    if (prefs.houseRules) setHouseRules(prefs.houseRules);
+    if (prefs.politicsFriendly) setPoliticsFriendly(prefs.politicsFriendly);
     if (prefs.theme) setTheme(prefs.theme);
     const saved = loadCollection();
     if (saved) {
@@ -133,8 +143,29 @@ export function DeckBuilderApp() {
     if (!hydrated) return;
     document.documentElement.classList.remove("light", "dark");
     document.documentElement.classList.add(theme);
-    savePrefs({ format, colors, strategy, budgetMax, powerLevel, theme });
-  }, [hydrated, format, colors, strategy, budgetMax, powerLevel, theme]);
+    savePrefs({
+      format,
+      colors,
+      strategy,
+      budgetMax,
+      powerLevel,
+      theme,
+      avoidList,
+      houseRules,
+      politicsFriendly,
+    });
+  }, [
+    hydrated,
+    format,
+    colors,
+    strategy,
+    budgetMax,
+    powerLevel,
+    theme,
+    avoidList,
+    houseRules,
+    politicsFriendly,
+  ]);
 
   const collectionValue = useMemo(
     () =>
@@ -222,8 +253,21 @@ export function DeckBuilderApp() {
       colors,
       budgetMax: budgetMax > 0 ? budgetMax : undefined,
       powerLevel,
+      avoidList: avoidList.trim() || undefined,
+      houseRules,
+      politicsFriendly: format === "commander" ? politicsFriendly : undefined,
     }),
-    [format, resolved, strategy, colors, budgetMax, powerLevel],
+    [
+      format,
+      resolved,
+      strategy,
+      colors,
+      budgetMax,
+      powerLevel,
+      avoidList,
+      houseRules,
+      politicsFriendly,
+    ],
   );
 
   const applyDeckResult = useCallback((label: string, data: DeckResult) => {
@@ -889,6 +933,77 @@ export function DeckBuilderApp() {
               {POWER_LEVELS[powerLevel].hint}
             </p>
 
+            <label className="mb-3 block text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
+              Ban list <span className="text-stone-600">(optional)</span>
+            </label>
+            <textarea
+              value={avoidList}
+              onChange={(e) => setAvoidList(e.target.value)}
+              placeholder="One card per line or comma-separated — e.g. Sol Ring, Dockside Extortionist"
+              rows={3}
+              className="mb-4 w-full resize-y rounded-xl border border-stone-700/60 bg-stone-950/60 px-4 py-3 text-sm text-stone-100 placeholder:text-stone-600 focus:border-amber-500 focus:outline-none"
+            />
+            <p className="mb-6 text-xs text-stone-500">
+              Banned cards are excluded from AI picks and trimmed from the final
+              deck if they slip through.
+            </p>
+
+            <label className="mb-3 block text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
+              House rules
+            </label>
+            <div className="mb-4 space-y-2">
+              {(
+                [
+                  [
+                    "noMassLandDestruction",
+                    "No mass land destruction",
+                  ],
+                  ["noInfiniteCombos", "No infinite / game-winning combos"],
+                  ["noExtraTurns", "No extra-turn engines"],
+                ] as const
+              ).map(([key, label]) => (
+                <label
+                  key={key}
+                  className="flex cursor-pointer items-center gap-3 rounded-xl bg-stone-900/40 px-4 py-2.5 ring-1 ring-stone-800/80"
+                >
+                  <input
+                    type="checkbox"
+                    checked={houseRules[key]}
+                    onChange={(e) =>
+                      setHouseRules((prev) => ({
+                        ...prev,
+                        [key]: e.target.checked,
+                      }))
+                    }
+                    className="h-4 w-4 rounded border-stone-600 bg-stone-950 text-amber-500 focus:ring-amber-500"
+                  />
+                  <span className="text-sm text-stone-200">{label}</span>
+                </label>
+              ))}
+            </div>
+
+            {format === "commander" && (
+              <>
+                <label className="mb-3 flex cursor-pointer items-center gap-3 rounded-xl bg-stone-900/40 px-4 py-3 ring-1 ring-stone-800/80">
+                  <input
+                    type="checkbox"
+                    checked={politicsFriendly}
+                    onChange={(e) => setPoliticsFriendly(e.target.checked)}
+                    className="h-4 w-4 rounded border-stone-600 bg-stone-950 text-amber-500 focus:ring-amber-500"
+                  />
+                  <span className="text-sm text-stone-200">
+                    <span className="font-semibold text-amber-200/90">
+                      Politics-friendly Commander
+                    </span>
+                    <span className="mt-0.5 block text-xs text-stone-500">
+                      Group-hug / pillowfort vibes — wins without making enemies
+                    </span>
+                  </span>
+                </label>
+                <div className="mb-7" />
+              </>
+            )}
+
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
@@ -1043,6 +1158,7 @@ export function DeckBuilderApp() {
             deck={activeResult.deck}
             enriched={activeResult.enriched}
             validation={activeResult.validation}
+            targetPowerLevel={powerLevel}
             onSwapCard={(name, zone) => void swapCard(name, zone)}
             swappingCard={swappingCard}
           />

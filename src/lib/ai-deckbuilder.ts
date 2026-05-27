@@ -18,9 +18,14 @@ import type {
 import { countLandsInLines } from "./deck-stats";
 import { cardUsdPrice } from "./prices";
 import {
-  getPowerPromptBlock,
-  type PowerLevelId,
-} from "./power-levels";
+  buildAvoidNameKeys,
+  buildPreferencesPromptBlock,
+  cardViolatesHouseRules,
+  DEFAULT_HOUSE_RULES,
+  isNameAvoided,
+  type DeckBuildPreferences,
+} from "./deck-preferences";
+import { getPowerPromptBlock } from "./power-levels";
 import { getDisplayName, nameKey } from "./scryfall";
 
 /** Max mainboard lands after trim backfill — avoids padding with basics when spells were dropped. */
@@ -215,6 +220,7 @@ function trimDeckToCollection(
   resolved: ResolvedCollectionCard[],
   colorPref?: string[],
   maxBudgetUsd?: number,
+  brewPrefs?: DeckBuildPreferences,
 ): { deck: BuiltDeck; adjustments: string[] } {
   const formatRules = getFormat(deck.format);
   const owned = buildOwnedIndex(resolved);
@@ -385,6 +391,68 @@ function trimDeckToCollection(
             .map((c) => COLOR_NAMES[c] ?? c)
             .join(" / ")} cards. Click "Fix errors with AI" to rebalance.`,
         );
+      }
+    }
+  }
+
+  const avoidCards = brewPrefs?.avoidCards ?? [];
+  const avoidKeys = avoidCards.length
+    ? buildAvoidNameKeys(avoidCards, resolved)
+    : new Set<string>();
+  const houseRules = brewPrefs?.houseRules ?? DEFAULT_HOUSE_RULES;
+  const enforceHouseRules =
+    houseRules.noMassLandDestruction ||
+    houseRules.noInfiniteCombos ||
+    houseRules.noExtraTurns;
+
+  if (avoidKeys.size || enforceHouseRules) {
+    const filterByPrefs = (lines: DeckCardLine[], zone: string) => {
+      const kept: DeckCardLine[] = [];
+      for (const line of lines) {
+        const ownedEntry = owned.get(nameKey(line.name));
+        if (!ownedEntry) {
+          kept.push(line);
+          continue;
+        }
+        const display = getDisplayName(ownedEntry.card);
+        if (avoidKeys.size && isNameAvoided(display, avoidKeys)) {
+          adjustments.push(`Dropped ${display} from ${zone} — on user ban list.`);
+          continue;
+        }
+        if (enforceHouseRules) {
+          const violation = cardViolatesHouseRules(ownedEntry.card, houseRules);
+          if (violation) {
+            adjustments.push(
+              `Dropped ${display} from ${zone} — violates house rule (${violation}).`,
+            );
+            continue;
+          }
+        }
+        kept.push(line);
+      }
+      return kept;
+    };
+
+    trimmedMainboard = filterByPrefs(trimmedMainboard, "mainboard");
+    trimmedSideboard = filterByPrefs(trimmedSideboard, "sideboard");
+
+    if (commander && commanderCard) {
+      const display = getDisplayName(commanderCard);
+      if (avoidKeys.size && isNameAvoided(display, avoidKeys)) {
+        adjustments.push(`Dropped commander ${display} — on user ban list.`);
+        commander = null;
+        commanderReason = undefined;
+        commanderCard = null;
+      } else if (enforceHouseRules) {
+        const violation = cardViolatesHouseRules(commanderCard, houseRules);
+        if (violation) {
+          adjustments.push(
+            `Dropped commander ${display} — violates house rule (${violation}).`,
+          );
+          commander = null;
+          commanderReason = undefined;
+          commanderCard = null;
+        }
       }
     }
   }
@@ -670,7 +738,7 @@ function buildBaseUserMessage(
   strategyHint?: string,
   colorPref?: string[],
   maxBudgetUsd?: number,
-  powerLevel?: PowerLevelId,
+  brewPrefs?: DeckBuildPreferences,
 ): string {
   const prefColors = sortWubrg(
     (colorPref ?? []).filter((c) => "WUBRG".includes(c)),
@@ -733,9 +801,14 @@ The user has explicitly requested these colors: ${colorList}.
 - Prefer budget-friendly alternatives from the collection. Basic lands are always allowed.`;
   }
 
-  const powerBlock = getPowerPromptBlock(powerLevel);
+  const powerBlock = getPowerPromptBlock(brewPrefs?.powerLevel);
   if (powerBlock) {
     userMessage += `\n\n${powerBlock}`;
+  }
+
+  const prefsBlock = buildPreferencesPromptBlock(format, brewPrefs ?? {});
+  if (prefsBlock) {
+    userMessage += `\n\n${prefsBlock}`;
   }
 
   if (strategyHint?.trim()) {
@@ -755,6 +828,7 @@ async function runDeckGeneration(
   colorPref?: string[],
   maxBudgetUsd?: number,
   onProgress?: (event: DeckBuildProgress) => void,
+  brewPrefs?: DeckBuildPreferences,
 ): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -845,6 +919,7 @@ async function runDeckGeneration(
       resolved,
       colorPref,
       maxBudgetUsd,
+      brewPrefs,
     );
     if (adjustments.length) {
       deck.warnings = [...deck.warnings, ...adjustments];
@@ -873,6 +948,7 @@ async function runDeckGeneration(
     resolved,
     colorPref,
     maxBudgetUsd,
+    brewPrefs,
   );
   deck.warnings = [...deck.warnings, ...adjustments, ...lastErrors];
 
@@ -886,7 +962,7 @@ export async function buildDeckWithAI(
   colorPref?: string[],
   maxBudgetUsd?: number,
   onProgress?: (event: DeckBuildProgress) => void,
-  powerLevel?: PowerLevelId,
+  brewPrefs?: DeckBuildPreferences,
 ): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
   const userMessage = buildBaseUserMessage(
     format,
@@ -894,7 +970,7 @@ export async function buildDeckWithAI(
     strategyHint,
     colorPref,
     maxBudgetUsd,
-    powerLevel,
+    brewPrefs,
   );
   const baseMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt(format) },
@@ -908,6 +984,7 @@ export async function buildDeckWithAI(
     colorPref,
     maxBudgetUsd,
     onProgress,
+    brewPrefs,
   );
 }
 
@@ -920,7 +997,7 @@ export async function shoreUpDeckWithAI(
   colorPref?: string[],
   maxBudgetUsd?: number,
   onProgress?: (event: DeckBuildProgress) => void,
-  powerLevel?: PowerLevelId,
+  brewPrefs?: DeckBuildPreferences,
 ): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
   const userMessage = buildBaseUserMessage(
     format,
@@ -928,7 +1005,7 @@ export async function shoreUpDeckWithAI(
     strategyHint,
     colorPref,
     maxBudgetUsd,
-    powerLevel,
+    brewPrefs,
   );
   const previousJson = JSON.stringify(
     {
@@ -982,6 +1059,7 @@ Hard constraints:
     colorPref,
     maxBudgetUsd,
     onProgress,
+    brewPrefs,
   );
 }
 
@@ -994,7 +1072,7 @@ export async function refineDeckWithAI(
   colorPref?: string[],
   maxBudgetUsd?: number,
   onProgress?: (event: DeckBuildProgress) => void,
-  powerLevel?: PowerLevelId,
+  brewPrefs?: DeckBuildPreferences,
 ): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
   const userMessage = buildBaseUserMessage(
     format,
@@ -1002,7 +1080,7 @@ export async function refineDeckWithAI(
     strategyHint,
     colorPref,
     maxBudgetUsd,
-    powerLevel,
+    brewPrefs,
   );
   const previousJson = JSON.stringify(
     {
@@ -1045,6 +1123,7 @@ export async function refineDeckWithAI(
     colorPref,
     maxBudgetUsd,
     onProgress,
+    brewPrefs,
   );
 }
 
@@ -1067,7 +1146,7 @@ export async function swapCardWithAI(
   strategyHint?: string,
   colorPref?: string[],
   maxBudgetUsd?: number,
-  powerLevel?: PowerLevelId,
+  brewPrefs?: DeckBuildPreferences,
 ): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -1080,7 +1159,7 @@ export async function swapCardWithAI(
     strategyHint,
     colorPref,
     maxBudgetUsd,
-    powerLevel,
+    brewPrefs,
   );
 
   const deckJson = JSON.stringify(
@@ -1147,6 +1226,7 @@ Return JSON only:
     resolved,
     colorPref,
     maxBudgetUsd,
+    brewPrefs,
   );
   trimmed.warnings = [
     ...trimmed.warnings,

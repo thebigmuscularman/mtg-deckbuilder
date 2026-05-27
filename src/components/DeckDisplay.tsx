@@ -3,11 +3,13 @@
 import Image from "next/image";
 import { useMemo } from "react";
 import { groupLinesByType } from "@/lib/card-groups";
+import { comparePowerToTarget } from "@/lib/deck-preferences";
 import {
   computeDeckStats,
-  estimateCommanderPowerLevel,
+  estimateDeckPowerLevel,
   getLandWarnings,
 } from "@/lib/deck-stats";
+import type { PowerLevelId } from "@/lib/power-levels";
 import { exportDeck, type ExportFormat } from "@/lib/export-formats";
 import { deckEstimatedValue } from "@/lib/prices";
 import { getCardImage, getDisplayName } from "@/lib/scryfall";
@@ -37,6 +39,7 @@ interface DeckDisplayProps {
   };
   onSwapCard?: (name: string, zone: "mainboard" | "sideboard" | "commander") => void;
   swappingCard?: string | null;
+  targetPowerLevel?: PowerLevelId;
 }
 
 function manaClass(inner: string): string {
@@ -251,6 +254,7 @@ export function DeckDisplay({
   validation,
   onSwapCard,
   swappingCard,
+  targetPowerLevel,
 }: DeckDisplayProps) {
   const mainboard: EnrichedLine[] =
     enriched?.mainboard ?? deck.mainboard.map((l) => ({ ...l, card: null }));
@@ -264,9 +268,17 @@ export function DeckDisplay({
     [deck.format, stats],
   );
   const powerLevel = useMemo(
-    () => estimateCommanderPowerLevel(deck, mainboard, commanderCard),
+    () => estimateDeckPowerLevel(deck, mainboard, commanderCard),
     [deck, mainboard, commanderCard],
   );
+  const powerComparison = useMemo(() => {
+    if (!powerLevel || !targetPowerLevel) return null;
+    return comparePowerToTarget(
+      powerLevel.score,
+      powerLevel.label,
+      targetPowerLevel,
+    );
+  }, [powerLevel, targetPowerLevel]);
   const deckValue = useMemo(
     () => deckEstimatedValue(mainboard, commanderCard),
     [mainboard, commanderCard],
@@ -360,6 +372,7 @@ export function DeckDisplay({
         stats={stats}
         landWarnings={landWarnings}
         powerLevel={powerLevel}
+        powerComparison={powerComparison}
         deckValueUsd={deckValue}
         colorIdentity={commanderIdentity}
       />

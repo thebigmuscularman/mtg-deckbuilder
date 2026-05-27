@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { swapCardWithAI } from "@/lib/ai-deckbuilder";
+import { brewPreferencesFields, brewPreferencesFromBody } from "@/lib/api-brew-body";
 import { validateDeck } from "@/lib/deck-validation";
 import type { BuiltDeck, FormatId, ResolvedCollectionCard } from "@/lib/types";
 
@@ -46,9 +47,7 @@ const bodySchema = z.object({
   strategy: z.string().optional(),
   colors: z.array(z.enum(["W", "U", "B", "R", "G"])).optional(),
   budgetMax: z.number().positive().optional(),
-  powerLevel: z
-    .enum(["casual", "focused", "optimized", "high"])
-    .optional(),
+  ...brewPreferencesFields,
 });
 
 export const maxDuration = 90;
@@ -73,8 +72,8 @@ export async function POST(request: Request) {
       strategy,
       colors,
       budgetMax,
-      powerLevel,
     } = parsed.data;
+    const brewPrefs = brewPreferencesFromBody(parsed.data);
     const playable = resolved.filter((r) => r.card) as ResolvedCollectionCard[];
     const previousDeck: BuiltDeck = { ...deck, warnings: deck.warnings ?? [] };
 
@@ -87,7 +86,7 @@ export async function POST(request: Request) {
       strategy,
       colors,
       budgetMax,
-      powerLevel,
+      brewPrefs,
     );
 
     const validation = validateDeck(swapped, playable);

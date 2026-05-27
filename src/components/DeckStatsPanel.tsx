@@ -1,5 +1,6 @@
 "use client";
 
+import type { PowerTargetComparison } from "@/lib/deck-preferences";
 import type { DeckStats, PowerLevelResult } from "@/lib/deck-stats";
 import { formatUsd } from "@/lib/prices";
 import { ManaIdentityBadge } from "./ManaIdentityBadge";
@@ -16,12 +17,14 @@ export function DeckStatsPanel({
   stats,
   landWarnings,
   powerLevel,
+  powerComparison,
   deckValueUsd,
   colorIdentity,
 }: {
   stats: DeckStats;
   landWarnings: string[];
   powerLevel: PowerLevelResult | null;
+  powerComparison?: PowerTargetComparison | null;
   deckValueUsd: number;
   colorIdentity?: string[];
 }) {
@@ -103,7 +106,7 @@ export function DeckStatsPanel({
       {powerLevel && (
         <div className="rounded-xl border border-purple-800/40 bg-purple-950/30 p-3">
           <p className="text-xs font-bold uppercase tracking-wider text-purple-300">
-            Commander power estimate
+            Power estimate
           </p>
           <p className="mt-1 text-lg font-black text-purple-100">
             {powerLevel.score}/10 — {powerLevel.label}
@@ -115,6 +118,33 @@ export function DeckStatsPanel({
               ))}
             </ul>
           )}
+        </div>
+      )}
+
+      {powerComparison && (
+        <div
+          className={`rounded-xl border p-3 ${
+            powerComparison.status === "match"
+              ? "border-emerald-800/40 bg-emerald-950/30"
+              : powerComparison.status === "high"
+                ? "border-amber-800/40 bg-amber-950/30"
+                : "border-sky-800/40 bg-sky-950/30"
+          }`}
+        >
+          <p
+            className={`text-xs font-bold uppercase tracking-wider ${
+              powerComparison.status === "match"
+                ? "text-emerald-300"
+                : powerComparison.status === "high"
+                  ? "text-amber-300"
+                  : "text-sky-300"
+            }`}
+          >
+            Target: {powerComparison.targetLabel} ({powerComparison.targetBracket})
+          </p>
+          <p className="mt-1 text-sm leading-relaxed text-stone-200/95">
+            {powerComparison.message}
+          </p>
         </div>
       )}
 
