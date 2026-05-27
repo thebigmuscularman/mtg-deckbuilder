@@ -78,8 +78,12 @@ export function loadDeckHistory(): SavedDeckEntry[] {
 }
 
 export function pushDeckHistory(deck: BuiltDeck): SavedDeckEntry[] {
+  // `${Date.now()}` collides when several decks are pushed in the same tick
+  // (e.g. buildThreeDecks awaits Promise.all). Add a random suffix so each
+  // entry is uniquely identified and React keys don't duplicate.
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const entry: SavedDeckEntry = {
-    id: `${Date.now()}`,
+    id,
     savedAt: new Date().toISOString(),
     deck,
     label: deck.name,
@@ -90,7 +94,7 @@ export function pushDeckHistory(deck: BuiltDeck): SavedDeckEntry[] {
     try {
       localStorage.setItem(DECKS_KEY, JSON.stringify(next));
     } catch {
-      // ignore
+      // ignore quota errors
     }
   }
   return next;

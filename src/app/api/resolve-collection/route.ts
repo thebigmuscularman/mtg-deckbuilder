@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { parseCollectionText } from "@/lib/collection";
-import { cardKey, resolveCollection } from "@/lib/scryfall";
+import { cardKey, nameKey, resolveCollection } from "@/lib/scryfall";
 import type {
   CollectionSummary,
   ResolvedCollectionCard,
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
 
     const resolved: ResolvedCollectionCard[] = entries.map((entry) => {
       const key = cardKey(entry);
-      const card = scryfallMap.get(key) ?? scryfallMap.get(entry.name.toLowerCase()) ?? null;
+      const card = scryfallMap.get(key) ?? scryfallMap.get(nameKey(entry.name)) ?? null;
       return {
         entry,
         card,

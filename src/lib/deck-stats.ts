@@ -1,6 +1,6 @@
 import type { BuiltDeck, FormatId, ScryfallCard } from "./types";
 import { isBasicLand } from "./formats";
-import { getDisplayName } from "./scryfall";
+import { getDisplayName, nameKey } from "./scryfall";
 
 export type CurveBucket = {
   label: string;
@@ -158,7 +158,7 @@ export function estimateCommanderPowerLevel(
 
   const names = lines
     .filter((l) => l.card)
-    .flatMap((l) => Array(l.quantity).fill(getDisplayName(l.card!).toLowerCase()));
+    .flatMap((l) => Array(l.quantity).fill(nameKey(getDisplayName(l.card!))));
 
   const fastMana = names.filter((n) => FAST_MANA.has(n)).length;
   if (fastMana >= 3) {

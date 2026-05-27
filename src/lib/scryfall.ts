@@ -4,6 +4,15 @@ const SCRYFALL_BASE = "https://api.scryfall.com";
 const BATCH_SIZE = 75;
 const RATE_LIMIT_MS = 100;
 
+/**
+ * Canonical map key for matching card names across the codebase.
+ * Trims AND lowercases so trailing whitespace (e.g. from paste lists)
+ * does not silently miss in lookups.
+ */
+export function nameKey(name: string): string {
+  return name.trim().toLowerCase();
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -83,27 +92,27 @@ export async function resolveCollection(
     const notFoundSet = new Set(
       (response.not_found ?? []).map((nf) =>
         nf.name
-          ? nf.name.toLowerCase()
-          : `${nf.set}:${nf.collector_number}`.toLowerCase(),
+          ? nameKey(nf.name)
+          : nameKey(`${nf.set}:${nf.collector_number}`),
       ),
     );
 
     for (const card of response.data ?? []) {
-      results.set(card.name.toLowerCase(), card);
+      results.set(nameKey(card.name), card);
       if (card.card_faces?.[0]?.name) {
-        results.set(card.card_faces[0].name.toLowerCase(), card);
+        results.set(nameKey(card.card_faces[0].name), card);
       }
     }
 
     for (const entry of batch) {
       const key = cardKey(entry);
-      if (results.has(entry.name.toLowerCase())) continue;
+      if (results.has(nameKey(entry.name))) continue;
 
       const idKey = entry.set && entry.collectorNumber
-        ? `${entry.set}:${entry.collectorNumber}`.toLowerCase()
-        : entry.name.toLowerCase();
+        ? nameKey(`${entry.set}:${entry.collectorNumber}`)
+        : nameKey(entry.name);
 
-      if (notFoundSet.has(idKey) || notFoundSet.has(entry.name.toLowerCase())) {
+      if (notFoundSet.has(idKey) || notFoundSet.has(nameKey(entry.name))) {
         results.set(key, null);
       }
     }
@@ -112,7 +121,7 @@ export async function resolveCollection(
   for (const entry of entries) {
     const key = cardKey(entry);
     if (!results.has(key)) {
-      const byName = results.get(entry.name.toLowerCase());
+      const byName = results.get(nameKey(entry.name));
       results.set(key, byName ?? null);
     }
   }
@@ -122,9 +131,9 @@ export async function resolveCollection(
 
 export function cardKey(entry: CollectionEntry): string {
   if (entry.set && entry.collectorNumber) {
-    return `${entry.set}:${entry.collectorNumber}:${entry.name}`.toLowerCase();
+    return nameKey(`${entry.set}:${entry.collectorNumber}:${entry.name}`);
   }
-  return entry.name.toLowerCase();
+  return nameKey(entry.name);
 }
 
 export function getCardImage(card: ScryfallCard): string | undefined {
@@ -134,22 +143,4 @@ export function getCardImage(card: ScryfallCard): string | undefined {
 
 export function getDisplayName(card: ScryfallCard): string {
   return card.card_faces?.[0]?.name ?? card.name;
-}
-
-export function isLegendary(card: ScryfallCard): boolean {
-  const typeLine = card.type_line ?? card.card_faces?.[0]?.type_line ?? "";
-  return typeLine.toLowerCase().includes("legendary");
-}
-
-export async function fuzzyFindCard(name: string): Promise<ScryfallCard | null> {
-  try {
-    const encoded = encodeURIComponent(name);
-    const card = await scryfallFetch<ScryfallCard>(
-      `/cards/named?fuzzy=${encoded}`,
-      { cache: "no-store" },
-    );
-    return card;
-  } catch {
-    return null;
-  }
 }

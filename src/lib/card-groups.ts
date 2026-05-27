@@ -1,3 +1,4 @@
+import { nameKey } from "./scryfall";
 import type { ScryfallCard } from "./types";
 
 export const TYPE_SECTION_ORDER = [
@@ -34,10 +35,12 @@ export function groupLinesByType<T extends { name: string; card: ScryfallCard | 
 ): Array<{ section: TypeSection; lines: T[] }> {
   const buckets = new Map<TypeSection, T[]>();
 
+  const commanderKey = options?.commanderName
+    ? nameKey(options.commanderName)
+    : null;
   for (const line of lines) {
     const section =
-      options?.commanderName &&
-      line.name.toLowerCase() === options.commanderName.toLowerCase()
+      commanderKey && nameKey(line.name) === commanderKey
         ? "Commander"
         : classifyTypeSection(line.card?.type_line ?? "");
     const list = buckets.get(section) ?? [];

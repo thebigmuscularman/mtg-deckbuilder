@@ -1,5 +1,5 @@
 import type { FormatId, ScryfallCard } from "./types";
-import { getDisplayName, isLegendary } from "./scryfall";
+import { getDisplayName, nameKey } from "./scryfall";
 
 export interface FormatRules {
   id: FormatId;
@@ -29,7 +29,7 @@ const BASIC_LAND_NAMES = new Set([
 ]);
 
 export function isBasicLand(name: string): boolean {
-  return BASIC_LAND_NAMES.has(name.toLowerCase());
+  return BASIC_LAND_NAMES.has(nameKey(name));
 }
 
 export const FORMATS: Record<FormatId, FormatRules> = {
@@ -82,17 +82,6 @@ export function cardMeetsColorIdentity(
   if (!commanderColors.length) return true;
   const identity = card.color_identity ?? [];
   return identity.every((c) => commanderColors.includes(c));
-}
-
-export function getCommanderCandidates(cards: ScryfallCard[]): ScryfallCard[] {
-  return cards.filter((card) => {
-    const typeLine = card.type_line ?? "";
-    return (
-      isLegendary(card) &&
-      (typeLine.toLowerCase().includes("creature") ||
-        typeLine.toLowerCase().includes("planeswalker"))
-    );
-  });
 }
 
 export function formatRulesPrompt(formatId: FormatId): string {

@@ -1,4 +1,5 @@
 import type { CollectionEntry } from "./types";
+import { nameKey } from "./scryfall";
 
 const QUANTITY_FIRST = /^(\d+)\s*[xX]?\s+(.+)$/;
 const NAME_FIRST = /^(.+?)\s*[xX](\d+)$/;
@@ -121,8 +122,8 @@ function mergeDuplicates(entries: CollectionEntry[]): CollectionEntry[] {
 
   for (const entry of entries) {
     const key = entry.set && entry.collectorNumber
-      ? `${entry.set}:${entry.collectorNumber}:${entry.name}`.toLowerCase()
-      : entry.name.toLowerCase();
+      ? nameKey(`${entry.set}:${entry.collectorNumber}:${entry.name}`)
+      : nameKey(entry.name);
 
     const existing = map.get(key);
     if (existing) {

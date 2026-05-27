@@ -7,7 +7,7 @@ import {
   getFormat,
   isBasicLand,
 } from "./formats";
-import { validateDeck } from "./deck-validation";
+import { buildOwnedIndex, validateDeck } from "./deck-validation";
 import type {
   BuiltDeck,
   DeckCardLine,
@@ -16,7 +16,7 @@ import type {
   ScryfallCard,
 } from "./types";
 import { cardUsdPrice } from "./prices";
-import { getDisplayName } from "./scryfall";
+import { getDisplayName, nameKey } from "./scryfall";
 
 export type DeckBuildProgress =
   | { type: "status"; message: string }
@@ -101,28 +101,25 @@ function gatherPromptCards(
   resolved: ResolvedCollectionCard[],
   format: FormatId,
 ): PromptCard[] {
-  const totals = new Map<string, { qty: number; card: ScryfallCard }>();
-  for (const r of resolved) {
-    if (!r.card) continue;
-    const name = getDisplayName(r.card);
-    const key = name.toLowerCase();
-    const existing = totals.get(key);
-    if (existing) existing.qty += r.entry.quantity;
-    else totals.set(key, { qty: r.entry.quantity, card: r.card });
-  }
-
+  // De-dupe by Scryfall card id (different printings of the same card share an id).
+  const owned = buildOwnedIndex(resolved);
+  const seen = new Set<string>();
   const formatRules = getFormat(format);
-  return [...totals.values()].map(({ qty, card }) => {
-    const name = getDisplayName(card);
-    const formatMax = isBasicLand(name) ? 99 : formatRules.maxCopies(card);
-    return {
+  const out: PromptCard[] = [];
+  for (const entry of owned.values()) {
+    if (seen.has(entry.card.id)) continue;
+    seen.add(entry.card.id);
+    const name = getDisplayName(entry.card);
+    const formatMax = isBasicLand(name) ? 99 : formatRules.maxCopies(entry.card);
+    out.push({
       name,
-      quantity: Math.min(qty, formatMax),
-      typeLine: card.type_line,
-      identity: sortWubrg(card.color_identity ?? []),
-      card,
-    };
-  });
+      quantity: Math.min(entry.qty, formatMax),
+      typeLine: entry.card.type_line,
+      identity: sortWubrg(entry.card.color_identity ?? []),
+      card: entry.card,
+    });
+  }
+  return out;
 }
 
 function buildCollectionContext(
@@ -196,23 +193,6 @@ function buildCollectionContext(
   );
 }
 
-function buildOwnedQuantities(
-  resolved: ResolvedCollectionCard[],
-): Map<string, { qty: number; card: ScryfallCard }> {
-  const totals = new Map<string, { qty: number; card: ScryfallCard }>();
-  for (const r of resolved) {
-    if (!r.card) continue;
-    const key = getDisplayName(r.card).toLowerCase();
-    const existing = totals.get(key);
-    if (existing) {
-      existing.qty += r.entry.quantity;
-    } else {
-      totals.set(key, { qty: r.entry.quantity, card: r.card });
-    }
-  }
-  return totals;
-}
-
 /**
  * Hard guarantee: the deck shown to the user never references cards the user
  * doesn't own or quantities they don't have. Drops unknowns and clamps to
@@ -225,14 +205,14 @@ function trimDeckToCollection(
   maxBudgetUsd?: number,
 ): { deck: BuiltDeck; adjustments: string[] } {
   const formatRules = getFormat(deck.format);
-  const owned = buildOwnedQuantities(resolved);
+  const owned = buildOwnedIndex(resolved);
   const adjustments: string[] = [];
   const prefColors = (colorPref ?? []).filter((c) => "WUBRG".includes(c));
 
   const clampLines = (lines: DeckCardLine[], zone: "mainboard" | "sideboard") => {
     const merged = new Map<string, DeckCardLine>();
     for (const line of lines) {
-      const key = line.name.trim().toLowerCase();
+      const key = nameKey(line.name);
       const existing = merged.get(key);
       if (existing) {
         existing.quantity += line.quantity;
@@ -244,8 +224,7 @@ function trimDeckToCollection(
 
     const out: DeckCardLine[] = [];
     for (const line of merged.values()) {
-      const key = line.name.toLowerCase();
-      const ownedEntry = owned.get(key);
+      const ownedEntry = owned.get(nameKey(line.name));
 
       if (!ownedEntry) {
         adjustments.push(`Dropped ${zone} card not in collection: ${line.name}`);
@@ -291,8 +270,7 @@ function trimDeckToCollection(
   let commanderReason = deck.commanderReason;
   let commanderCard: ScryfallCard | null = null;
   if (commander) {
-    const key = commander.trim().toLowerCase();
-    const ownedEntry = owned.get(key);
+    const ownedEntry = owned.get(nameKey(commander));
     if (!ownedEntry) {
       adjustments.push(
         `Dropped commander not in collection: ${commander}. Choose a legendary creature you own.`,
@@ -313,7 +291,7 @@ function trimDeckToCollection(
     const filterByPref = (lines: DeckCardLine[], zone: string) => {
       const kept: DeckCardLine[] = [];
       for (const line of lines) {
-        const ownedEntry = owned.get(line.name.toLowerCase());
+        const ownedEntry = owned.get(nameKey(line.name));
         if (!ownedEntry) {
           kept.push(line);
           continue;
@@ -362,7 +340,7 @@ function trimDeckToCollection(
     const filterByColor = (lines: DeckCardLine[], zone: string) => {
       const kept: DeckCardLine[] = [];
       for (const line of lines) {
-        const ownedEntry = owned.get(line.name.toLowerCase());
+        const ownedEntry = owned.get(nameKey(line.name));
         if (!ownedEntry) {
           kept.push(line);
           continue;
@@ -384,7 +362,7 @@ function trimDeckToCollection(
     if (commanderColors.length >= 2) {
       const used = new Set<string>();
       for (const line of trimmedMainboard) {
-        const card = owned.get(line.name.toLowerCase())?.card;
+        const card = owned.get(nameKey(line.name))?.card;
         if (!card) continue;
         for (const c of card.color_identity ?? []) used.add(c);
       }
@@ -426,8 +404,8 @@ function trimDeckToCollection(
     line: DeckCardLine,
     position: number,
   ): { score: number; isBasic: boolean; isLand: boolean } => {
-    const name = line.name.toLowerCase();
-    const card = owned.get(name)?.card ?? null;
+    const key = nameKey(line.name);
+    const card = owned.get(key)?.card ?? null;
     const typeLine = (card?.type_line ?? "").toLowerCase();
     const isBasic = isBasicLand(line.name);
     const isLand = isBasic || typeLine.includes("land");
@@ -436,7 +414,7 @@ function trimDeckToCollection(
     if (isBasic) score += 5000;
     else if (isLand) score += 1200;
     // Word-boundary avoids "Bolt" matching "thunderbolt" in the prose.
-    const nameWordBoundary = new RegExp(`\\b${escapeRegex(name)}\\b`);
+    const nameWordBoundary = new RegExp(`\\b${escapeRegex(key)}\\b`);
     if (nameWordBoundary.test(importanceText)) score += 800;
     // Multicolor cards in a multi-color deck are signature picks; protect them.
     const cardIdentity = card?.color_identity ?? [];
@@ -502,15 +480,23 @@ function trimDeckToCollection(
   // Mainboard: backfill with available basics if undersized.
   if (mainCount < targetMain) {
     const need = targetMain - mainCount;
+    // owned indexes each card under multiple aliases — dedupe by card id.
+    const seenBasic = new Set<string>();
     const basics = [...owned.values()]
-      .filter(({ card }) => isBasicLand(getDisplayName(card)))
+      .filter(({ card }) => {
+        if (!isBasicLand(getDisplayName(card))) return false;
+        if (seenBasic.has(card.id)) return false;
+        seenBasic.add(card.id);
+        return true;
+      })
       .sort((a, b) => b.qty - a.qty);
     let remaining = need;
     for (const basic of basics) {
       if (remaining <= 0) break;
       const display = getDisplayName(basic.card);
+      const displayKey = nameKey(display);
       const existing = trimmedMainboard.find(
-        (l) => l.name.toLowerCase() === display.toLowerCase(),
+        (l) => nameKey(l.name) === displayKey,
       );
       const used = existing?.quantity ?? 0;
       const headroom = basic.qty - used;
@@ -1021,7 +1007,7 @@ Return JSON only:
   }
 
   const updated: BuiltDeck = { ...deck, warnings: [...deck.warnings] };
-  const removeName = cardToReplace.trim().toLowerCase();
+  const removeKey = nameKey(cardToReplace);
 
   if (zone === "commander") {
     const rep = parsed.data.replacements[0];
@@ -1030,7 +1016,7 @@ Return JSON only:
     updated.commanderReason = rep.reason;
   } else {
     const list = zone === "mainboard" ? updated.mainboard : updated.sideboard;
-    const filtered = list.filter((l) => l.name.toLowerCase() !== removeName);
+    const filtered = list.filter((l) => nameKey(l.name) !== removeKey);
     const merged = [...filtered, ...parsed.data.replacements];
     if (zone === "mainboard") updated.mainboard = merged;
     else updated.sideboard = merged;
