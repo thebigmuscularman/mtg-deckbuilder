@@ -15,8 +15,16 @@ import type {
   ResolvedCollectionCard,
   ScryfallCard,
 } from "./types";
+import { countLandsInLines } from "./deck-stats";
 import { cardUsdPrice } from "./prices";
 import { getDisplayName, nameKey } from "./scryfall";
+
+/** Max mainboard lands after trim backfill — avoids padding with basics when spells were dropped. */
+const MAX_MAINBOARD_LANDS: Record<FormatId, number> = {
+  commander: 40,
+  standard: 26,
+  modern: 26,
+};
 
 export type DeckBuildProgress =
   | { type: "status"; message: string }
@@ -477,9 +485,18 @@ function trimDeckToCollection(
     mainCount = sumQty(trimmedMainboard);
   }
 
-  // Mainboard: backfill with available basics if undersized.
+  // Mainboard: backfill with owned basics only up to a sane land cap — never pad
+  // to 60/99 with basics when collection/color/budget filters removed most spells.
   if (mainCount < targetMain) {
     const need = targetMain - mainCount;
+    const maxLands = MAX_MAINBOARD_LANDS[deck.format];
+    const countLands = () =>
+      countLandsInLines(trimmedMainboard, (line) =>
+        owned.get(nameKey(line.name))?.card ?? null,
+      );
+    const landHeadroom = Math.max(0, maxLands - countLands());
+    const basicsBudget = Math.min(need, landHeadroom);
+
     // owned indexes each card under multiple aliases — dedupe by card id.
     const seenBasic = new Set<string>();
     const basics = [...owned.values()]
@@ -490,7 +507,9 @@ function trimDeckToCollection(
         return true;
       })
       .sort((a, b) => b.qty - a.qty);
-    let remaining = need;
+
+    let remaining = basicsBudget;
+    let basicsAdded = 0;
     for (const basic of basics) {
       if (remaining <= 0) break;
       const display = getDisplayName(basic.card);
@@ -512,15 +531,26 @@ function trimDeckToCollection(
           scryfallId: basic.card.id,
         });
       }
+      basicsAdded += add;
       remaining -= add;
     }
-    if (remaining > 0) {
+
+    mainCount = sumQty(trimmedMainboard);
+    const stillShort = targetMain - mainCount;
+
+    if (basicsAdded > 0) {
       adjustments.push(
-        `Mainboard is ${remaining} card${remaining === 1 ? "" : "s"} short of ${targetMain}; not enough owned lands to fill.`,
+        `Mainboard was ${need} card${need === 1 ? "" : "s"} short; added ${basicsAdded} owned basic land${basicsAdded === 1 ? "" : "s"} (land cap ${maxLands}).`,
       );
-    } else if (need > 0) {
+    }
+    if (remaining > 0 && basicsAdded < basicsBudget) {
       adjustments.push(
-        `Mainboard was ${need} card${need === 1 ? "" : "s"} short; filled with owned basic lands.`,
+        `Could not add ${remaining} more basic land${remaining === 1 ? "" : "s"} — not enough owned basics.`,
+      );
+    }
+    if (stillShort > 0) {
+      adjustments.push(
+        `⚠️ DECK INCOMPLETE: Mainboard is ${stillShort} card${stillShort === 1 ? "" : "s"} short of ${targetMain} (${mainCount} cards, ${countLands()} lands). After collection, color, and budget filters there are not enough legal non-land cards to fill the list — basics backfill stops at ${maxLands} lands so the deck stays playable. Widen your color selection or raise the budget cap, then rebuild.`,
       );
     }
   }

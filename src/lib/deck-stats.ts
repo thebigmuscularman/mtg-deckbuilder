@@ -2,6 +2,32 @@ import type { BuiltDeck, FormatId, ScryfallCard } from "./types";
 import { isBasicLand } from "./formats";
 import { getDisplayName, nameKey } from "./scryfall";
 
+/** Matches land counting in computeDeckStats / getLandWarnings. */
+export function cardCountsAsLand(
+  card: ScryfallCard | null,
+  fallbackName?: string,
+): boolean {
+  if (card) {
+    const name = getDisplayName(card);
+    return (
+      isBasicLand(name) || (card.type_line ?? "").toLowerCase().includes("land")
+    );
+  }
+  return fallbackName ? isBasicLand(fallbackName) : false;
+}
+
+export function countLandsInLines(
+  lines: Array<{ name: string; quantity: number }>,
+  resolveCard: (line: { name: string }) => ScryfallCard | null,
+): number {
+  let landCount = 0;
+  for (const line of lines) {
+    const card = resolveCard(line);
+    if (cardCountsAsLand(card, line.name)) landCount += line.quantity;
+  }
+  return landCount;
+}
+
 export type CurveBucket = {
   label: string;
   cmc: number;
@@ -64,10 +90,7 @@ export function computeDeckStats(
   for (const { quantity, card } of lines) {
     if (!card) continue;
     mainCount += quantity;
-    const name = getDisplayName(card);
-    const isLand =
-      isBasicLand(name) || (card.type_line ?? "").toLowerCase().includes("land");
-    if (isLand) landCount += quantity;
+    if (cardCountsAsLand(card)) landCount += quantity;
     else {
       const cmc = Math.max(0, card.cmc ?? 0);
       cmcSum += cmc * quantity;
