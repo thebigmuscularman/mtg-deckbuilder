@@ -64,6 +64,7 @@ export function trimDeckToCollection(
   const owned = buildOwnedIndex(resolved);
   const adjustments: string[] = [];
   const prefColors = (colorPref ?? []).filter((c) => "WUBRG".includes(c));
+  const aiMainQty = deck.mainboard.reduce((s, l) => s + l.quantity, 0);
 
   const clampLines = (lines: DeckCardLine[], zone: "mainboard" | "sideboard") => {
     const merged = new Map<string, DeckCardLine>();
@@ -380,6 +381,21 @@ export function trimDeckToCollection(
       owned.get(nameKey(line.name))?.card ?? null,
     );
 
+  const countSpells = () => {
+    let n = 0;
+    for (const line of trimmedMainboard) {
+      const card = owned.get(nameKey(line.name))?.card ?? null;
+      const typeLine = (card?.type_line ?? "").toLowerCase();
+      if (isBasicLand(line.name) || typeLine.includes("land")) continue;
+      n += line.quantity;
+    }
+    return n;
+  };
+
+  const minLands = minLandsFor(deck.format, brewPrefs);
+  const minSpells = targetMain - minLands;
+  const maxLandsCap = MAX_MAINBOARD_LANDS[deck.format];
+
   /**
    * Ordered list of basic-land "buckets" we'll round-robin when adding lands.
    * For Commander we follow the commander's color identity; otherwise the
@@ -499,45 +515,88 @@ export function trimDeckToCollection(
     return cut;
   };
 
-  // Mainboard: backfill with owned basics only up to a sane land cap — never pad
-  // to 60/99 with basics when collection/color/budget filters removed most spells.
+  const keptMainQty = sumQty(trimmedMainboard);
+  const spells = countSpells();
+  const lands = countLands();
+  const dropRate = aiMainQty > 0 ? 1 - keptMainQty / aiMainQty : 0;
+  /** Filters removed most of the AI list — padding with virtual basics would swamp the deck. */
+  const spellCollapse =
+    aiMainQty >= 15 && dropRate > 0.8 && spells < minSpells;
+
+  // Mainboard shortfall: only top up lands toward minLands — never replace missing
+  // spells with basics (virtual basics made that path too aggressive).
   if (mainCount < targetMain) {
     const need = targetMain - mainCount;
-    const maxLands = MAX_MAINBOARD_LANDS[deck.format];
-    const landHeadroom = Math.max(0, maxLands - countLands());
-    const basicsAdded = addBasics(Math.min(need, landHeadroom));
-
+    if (spellCollapse || spells < minSpells * 0.5) {
+      adjustments.push(
+        `⚠️ DECK INCOMPLETE: After collection, color, and budget filters only ${spells} non-land card${spells === 1 ? "" : "s"} remain (${Math.round(dropRate * 100)}% of the AI list was removed). Not padding with basics — widen your color selection, upload more cards, or relax budget/ban rules, then rebuild.`,
+      );
+      if (spells >= 8 && lands < minLands) {
+        const topUp = Math.min(
+          minLands - lands,
+          spells,
+          maxLandsCap - lands,
+        );
+        const added = topUp > 0 ? addBasics(topUp) : 0;
+        if (added > 0) {
+          adjustments.push(
+            `Added ${added} basic${added === 1 ? "" : "s"} for mana only (spell base too thin for a full ${targetMain}-card list).`,
+          );
+        }
+      }
+    } else {
+      const landShortfall = Math.max(0, minLands - lands);
+      const basicsAdded = addBasics(
+        Math.min(need, landShortfall, maxLandsCap - lands),
+      );
+      if (basicsAdded > 0) {
+        adjustments.push(
+          `Mainboard was ${need} card${need === 1 ? "" : "s"} short; added ${basicsAdded} basic${basicsAdded === 1 ? "" : "s"} for mana (target ≥${minLands} lands, not ${maxLandsCap}).`,
+        );
+      }
+      const stillShort = targetMain - sumQty(trimmedMainboard);
+      if (stillShort > 0) {
+        adjustments.push(
+          `⚠️ DECK INCOMPLETE: Still ${stillShort} card${stillShort === 1 ? "" : "s"} short (${sumQty(trimmedMainboard)}/${targetMain}, ${countLands()} lands, ${countSpells()} spells). Add more legal cards to your collection or adjust filters.`,
+        );
+      }
+    }
     mainCount = sumQty(trimmedMainboard);
-    const stillShort = targetMain - mainCount;
-
-    if (basicsAdded > 0) {
-      adjustments.push(
-        `Mainboard was ${need} card${need === 1 ? "" : "s"} short; added ${basicsAdded} owned basic land${basicsAdded === 1 ? "" : "s"} (land cap ${maxLands}).`,
-      );
-    }
-    if (stillShort > 0) {
-      adjustments.push(
-        `⚠️ DECK INCOMPLETE: Mainboard is ${stillShort} card${stillShort === 1 ? "" : "s"} short of ${targetMain} (${mainCount} cards, ${countLands()} lands). After collection, color, and budget filters there are not enough legal non-land cards to fill the list — basics backfill stops at ${maxLands} lands so the deck stays playable. Widen your color selection or raise the budget cap, then rebuild.`,
-      );
-    }
   }
 
-  // Land floor: even if the AI hit the card count, force a sane land base.
-  // Cuts the lowest-importance non-land spells and swaps them for owned basics.
-  const minLands = minLandsFor(deck.format, brewPrefs);
+  // Land floor: swap low-impact spells for basics only when the spell base is healthy.
   const currentLands = countLands();
-  if (currentLands < minLands) {
+  const currentSpells = countSpells();
+  if (currentLands < minLands && !spellCollapse) {
     const landDeficit = minLands - currentLands;
-    const cut = cutNonLandSpells(landDeficit);
-    const added = addBasics(cut);
-    if (added > 0) {
-      adjustments.push(
-        `Land floor enforced: AI shipped ${currentLands} lands (need ≥${minLands}). Swapped ${added} of the lowest-impact spell${added === 1 ? "" : "s"} for owned basics.`,
+    if (currentSpells >= minSpells * 0.6) {
+      const minSpellFloor = Math.ceil(minSpells * 0.6);
+      const maxCut = Math.max(0, currentSpells - minSpellFloor);
+      const cut = cutNonLandSpells(Math.min(landDeficit, maxCut));
+      const added = addBasics(
+        Math.min(cut, landDeficit, maxLandsCap - currentLands),
       );
-    } else if (cut > 0) {
-      adjustments.push(
-        `⚠️ Only ${currentLands} lands and no owned basics available to backfill. Add basic lands to your collection to fix the mana base.`,
+      if (added > 0) {
+        adjustments.push(
+          `Land floor enforced: ${currentLands} → ${countLands()} lands (target ≥${minLands}). Swapped ${added} low-impact spell${added === 1 ? "" : "s"} for basics.`,
+        );
+      } else if (cut > 0) {
+        adjustments.push(
+          `⚠️ Only ${currentLands} lands and no basics available to backfill. Add basic lands to your collection.`,
+        );
+      }
+    } else if (currentSpells > 0) {
+      const topUp = Math.min(
+        landDeficit,
+        maxLandsCap - currentLands,
+        currentSpells,
       );
+      const added = topUp > 0 ? addBasics(topUp) : 0;
+      if (added > 0) {
+        adjustments.push(
+          `Added ${added} basic${added === 1 ? "" : "s"} for mana (only ${currentSpells} spells remain — not cutting more for lands).`,
+        );
+      }
     }
     mainCount = sumQty(trimmedMainboard);
   }

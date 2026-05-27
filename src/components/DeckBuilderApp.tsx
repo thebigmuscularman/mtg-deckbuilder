@@ -26,12 +26,21 @@ import {
   StepIndicator,
   StreamingStatus,
 } from "./deck-builder/AppShell";
-import { BUILD_VARIANTS, type DeckResult, type Step } from "./deck-builder/types";
+import {
+  BUILD_VARIANTS,
+  type DeckResult,
+  type Step,
+  type Zone,
+} from "./deck-builder/types";
 import { brewPayload, useDeckPrefs } from "./deck-builder/use-deck-prefs";
 import { useBrewApi } from "./deck-builder/use-brew-api";
 import { useCollection } from "./deck-builder/use-collection";
 
-type Zone = "mainboard" | "sideboard" | "commander";
+type ResolveResponse = {
+  resolved: ResolvedCollectionCard[];
+  summary: { totalEntries: number; unresolved: unknown[] };
+  uniqueCount: number;
+};
 
 export function DeckBuilderApp() {
   const prefs = useDeckPrefs();
@@ -81,6 +90,11 @@ export function DeckBuilderApp() {
     [prefs, collection.resolved],
   );
 
+  const commitHistory = useCallback((deck: BuiltDeck) => {
+    pushDeckHistory(deck);
+    setDeckHistory(loadDeckHistory());
+  }, []);
+
   const applyDeckResult = useCallback(
     (label: string, result: DeckResult) => {
       setDeckTabs((prev) => {
@@ -88,11 +102,10 @@ export function DeckBuilderApp() {
         setActiveTab(next.length - 1);
         return next;
       });
-      pushDeckHistory(result.deck);
-      setDeckHistory(loadDeckHistory());
+      commitHistory(result.deck);
       setStep("deck");
     },
-    [],
+    [commitHistory],
   );
 
   const updateActiveTab = useCallback(
@@ -100,10 +113,17 @@ export function DeckBuilderApp() {
       setDeckTabs((tabs) =>
         tabs.map((t, i) => (i === activeTab ? { ...t, result } : t)),
       );
-      pushDeckHistory(result.deck);
-      setDeckHistory(loadDeckHistory());
+      commitHistory(result.deck);
     },
-    [activeTab],
+    [activeTab, commitHistory],
+  );
+
+  const ingestCollection = useCallback(
+    (data: ResolveResponse) => {
+      collection.setFromResponse(data);
+      setStep("review");
+    },
+    [collection],
   );
 
   const handleFile = useCallback(
@@ -117,28 +137,22 @@ export function DeckBuilderApp() {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Upload failed");
-        collection.setFromResponse(data);
-        setStep("review");
+        ingestCollection(data);
       } catch (e) {
         api.setError(e instanceof Error ? e.message : "Upload failed");
       }
     },
-    [api, collection],
+    [api, ingestCollection],
   );
 
   const resolveCollection = useCallback(
     async (text: string) => {
-      const data = await api.call<{
-        resolved: ResolvedCollectionCard[];
-        summary: { totalEntries: number; unresolved: unknown[] };
-        uniqueCount: number;
-      }>("/api/resolve-collection", { text });
-      if (data) {
-        collection.setFromResponse(data);
-        setStep("review");
-      }
+      const data = await api.call<ResolveResponse>("/api/resolve-collection", {
+        text,
+      });
+      if (data) ingestCollection(data);
     },
-    [api, collection],
+    [api, ingestCollection],
   );
 
   const buildStream = useCallback(async () => {
@@ -167,10 +181,9 @@ export function DeckBuilderApp() {
     }
     setDeckTabs(results);
     setActiveTab(0);
-    for (const r of results) pushDeckHistory(r.result.deck);
-    setDeckHistory(loadDeckHistory());
+    for (const r of results) commitHistory(r.result.deck);
     setStep("deck");
-  }, [api, payload, prefs.strategy]);
+  }, [api, payload, prefs.strategy, commitHistory]);
 
   const refine = useCallback(async () => {
     if (!activeResult) return;
@@ -422,7 +435,7 @@ export function DeckBuilderApp() {
           }}
           onSwap={(name, zone) => void swap(name, zone)}
           onQuantityChange={setCardQuantity}
-          onRemoveCard={removeCard}
+          onRemove={removeCard}
           onRebuildForPower={() => void rebuildForPower()}
         />
       )}

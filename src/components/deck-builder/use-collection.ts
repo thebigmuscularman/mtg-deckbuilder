@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   clearCollection,
   loadCollection,
@@ -86,5 +86,10 @@ export function useCollection() {
     clearCollection();
   }, []);
 
-  return { resolved, summary, restore, setFromResponse, removeAt, reset };
+  // Memoize so dependent useCallback / useEffect aren't invalidated every
+  // render by the parent component creating a new object literal.
+  return useMemo(
+    () => ({ resolved, summary, restore, setFromResponse, removeAt, reset }),
+    [resolved, summary, restore, setFromResponse, removeAt, reset],
+  );
 }

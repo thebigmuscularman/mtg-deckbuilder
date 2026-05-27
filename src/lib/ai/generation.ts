@@ -7,6 +7,16 @@ import type { BrewArgs, DeckResult } from "./types";
 
 const MODEL = () => process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 
+export function requireOpenAIKey(): string {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "OPENAI_API_KEY is not set. Add it to .env.local to enable AI deck building.",
+    );
+  }
+  return apiKey;
+}
+
 async function getRawCompletion(
   client: OpenAI,
   messages: OpenAI.Chat.ChatCompletionMessageParam[],
@@ -62,16 +72,10 @@ export async function runDeckGeneration(
   baseMessages: OpenAI.Chat.ChatCompletionMessageParam[],
   maxAttempts: number,
 ): Promise<DeckResult> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "OPENAI_API_KEY is not set. Add it to .env.local to enable AI deck building.",
-    );
-  }
   const { onProgress, brewPrefs, resolved } = args;
-  const client = new OpenAI({ apiKey });
+  const client = new OpenAI({ apiKey: requireOpenAIKey() });
   let lastErrors: string[] = [];
-  let parsedDeck: ReturnType<typeof deckSchema.parse> | null = null;
+  let lastTrimmedDeck: BuiltDeck | null = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [...baseMessages];
@@ -108,10 +112,10 @@ export async function runDeckGeneration(
       );
       continue;
     }
-    parsedDeck = parsed.data;
 
     const { deck, adjustments } = applyTrim(parsed.data, args);
     if (adjustments.length) deck.warnings = [...deck.warnings, ...adjustments];
+    lastTrimmedDeck = deck;
 
     const validation = validateDeck(deck, resolved, {
       allowIllegal: brewPrefs?.allowIllegal,
@@ -123,10 +127,9 @@ export async function runDeckGeneration(
     lastErrors = validation.errors;
   }
 
-  if (!parsedDeck) {
+  if (!lastTrimmedDeck) {
     throw new Error(`Deck generation failed: ${lastErrors.join("; ")}`);
   }
-  const { deck, adjustments } = applyTrim(parsedDeck, args);
-  deck.warnings = [...deck.warnings, ...adjustments, ...lastErrors];
-  return { deck, validationErrors: lastErrors };
+  lastTrimmedDeck.warnings = [...lastTrimmedDeck.warnings, ...lastErrors];
+  return { deck: lastTrimmedDeck, validationErrors: lastErrors };
 }

@@ -48,70 +48,56 @@ export type SavedDeckEntry = {
   label: string;
 };
 
-export function loadCollection(): SavedCollection | null {
-  if (typeof window === "undefined") return null;
+/** Read JSON from localStorage, returning `fallback` on missing/parse error. */
+function read<T>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
   try {
-    const raw = localStorage.getItem(COLLECTION_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as SavedCollection;
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
   } catch {
-    return null;
+    return fallback;
   }
 }
 
-export function saveCollection(data: SavedCollection): void {
+/** Write JSON to localStorage, silently swallowing quota errors. */
+function write(key: string, value: unknown): void {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(COLLECTION_KEY, JSON.stringify(data));
+    localStorage.setItem(key, JSON.stringify(value));
   } catch {
     // quota exceeded — ignore
   }
 }
 
-export function clearCollection(): void {
+function remove(key: string): void {
   if (typeof window === "undefined") return;
   try {
-    localStorage.removeItem(COLLECTION_KEY);
+    localStorage.removeItem(key);
   } catch {
     // ignore
   }
 }
 
-export function loadPrefs(): Partial<UserPrefs> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = localStorage.getItem(PREFS_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) as Partial<UserPrefs>;
-  } catch {
-    return {};
-  }
-}
+export const loadCollection = (): SavedCollection | null =>
+  read<SavedCollection | null>(COLLECTION_KEY, null);
 
-export function savePrefs(prefs: Partial<UserPrefs>): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
-  } catch {
-    // ignore
-  }
-}
+export const saveCollection = (data: SavedCollection): void =>
+  write(COLLECTION_KEY, data);
 
-export function loadDeckHistory(): SavedDeckEntry[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(DECKS_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw) as SavedDeckEntry[];
-  } catch {
-    return [];
-  }
-}
+export const clearCollection = (): void => remove(COLLECTION_KEY);
+
+export const loadPrefs = (): Partial<UserPrefs> =>
+  read<Partial<UserPrefs>>(PREFS_KEY, {});
+
+export const savePrefs = (prefs: Partial<UserPrefs>): void =>
+  write(PREFS_KEY, prefs);
+
+export const loadDeckHistory = (): SavedDeckEntry[] =>
+  read<SavedDeckEntry[]>(DECKS_KEY, []);
 
 export function pushDeckHistory(deck: BuiltDeck): SavedDeckEntry[] {
   // `${Date.now()}` collides when several decks are pushed in the same tick
-  // (e.g. buildThreeDecks awaits Promise.all). Add a random suffix so each
-  // entry is uniquely identified and React keys don't duplicate.
+  // (e.g. buildThreeDecks). Random suffix keeps React keys unique.
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const entry: SavedDeckEntry = {
     id,
@@ -121,43 +107,12 @@ export function pushDeckHistory(deck: BuiltDeck): SavedDeckEntry[] {
   };
   const prev = loadDeckHistory().filter((d) => d.deck.name !== deck.name);
   const next = [entry, ...prev].slice(0, MAX_DECKS);
-  if (typeof window !== "undefined") {
-    try {
-      localStorage.setItem(DECKS_KEY, JSON.stringify(next));
-    } catch {
-      // ignore quota errors
-    }
-  }
+  write(DECKS_KEY, next);
   return next;
 }
 
-export function loadPlaygroupPresets(): PlaygroupPreset[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(PRESETS_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw) as PlaygroupPreset[];
-  } catch {
-    return [];
-  }
-}
+export const loadPlaygroupPresets = (): PlaygroupPreset[] =>
+  read<PlaygroupPreset[]>(PRESETS_KEY, []);
 
-export function savePlaygroupPresets(presets: PlaygroupPreset[]): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(
-      PRESETS_KEY,
-      JSON.stringify(presets.slice(0, MAX_PRESETS)),
-    );
-  } catch {
-    // ignore
-  }
-}
-
-export function clearStoredData(): void {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(COLLECTION_KEY);
-  localStorage.removeItem(PREFS_KEY);
-  localStorage.removeItem(DECKS_KEY);
-  localStorage.removeItem(PRESETS_KEY);
-}
+export const savePlaygroupPresets = (presets: PlaygroupPreset[]): void =>
+  write(PRESETS_KEY, presets.slice(0, MAX_PRESETS));

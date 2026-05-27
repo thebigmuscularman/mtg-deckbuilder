@@ -17,6 +17,7 @@ import type { BuiltDeck, ScryfallCard } from "@/lib/types";
 import { CardHoverPreview } from "./CardHoverPreview";
 import { DeckStatsPanel } from "./DeckStatsPanel";
 import { ManaIdentityBadge } from "./ManaIdentityBadge";
+import type { CardActions, Zone } from "./deck-builder/types";
 
 type EnrichedLine = {
   name: string;
@@ -25,7 +26,7 @@ type EnrichedLine = {
   reason?: string;
 };
 
-interface DeckDisplayProps {
+interface DeckDisplayProps extends CardActions {
   deck: BuiltDeck;
   enriched?: {
     mainboard: EnrichedLine[];
@@ -37,18 +38,7 @@ interface DeckDisplayProps {
     errors: string[];
     warnings: string[];
   };
-  onSwapCard?: (name: string, zone: "mainboard" | "sideboard" | "commander") => void;
-  swappingCard?: string | null;
   targetPowerLevel?: PowerLevelId;
-  onQuantityChange?: (
-    name: string,
-    zone: "mainboard" | "sideboard" | "commander",
-    quantity: number,
-  ) => void;
-  onRemoveCard?: (
-    name: string,
-    zone: "mainboard" | "sideboard" | "commander",
-  ) => void;
   onRebuildForPower?: () => void;
   rebuilding?: boolean;
 }
@@ -72,6 +62,12 @@ function formatManaCost(cost?: string) {
   );
 }
 
+type CardRowProps = {
+  line: EnrichedLine;
+  zone: Zone;
+  swapping?: boolean;
+} & Pick<CardActions, "onSwap" | "onQuantityChange" | "onRemove">;
+
 function CardRow({
   line,
   zone,
@@ -79,18 +75,7 @@ function CardRow({
   swapping,
   onQuantityChange,
   onRemove,
-}: {
-  line: EnrichedLine;
-  zone: "mainboard" | "sideboard" | "commander";
-  onSwap?: (name: string, zone: "mainboard" | "sideboard" | "commander") => void;
-  swapping?: boolean;
-  onQuantityChange?: (
-    name: string,
-    zone: "mainboard" | "sideboard" | "commander",
-    quantity: number,
-  ) => void;
-  onRemove?: (name: string, zone: "mainboard" | "sideboard" | "commander") => void;
-}) {
+}: CardRowProps) {
   const image = line.card ? getCardImage(line.card) : undefined;
   const name = line.card ? getDisplayName(line.card) : line.name;
 
@@ -247,16 +232,8 @@ function GroupedSection({
 }: {
   title: string;
   lines: EnrichedLine[];
-  zone: "mainboard" | "sideboard";
-  onSwap?: (name: string, zone: "mainboard" | "sideboard" | "commander") => void;
-  swappingCard?: string | null;
-  onQuantityChange?: (
-    name: string,
-    zone: "mainboard" | "sideboard" | "commander",
-    quantity: number,
-  ) => void;
-  onRemove?: (name: string, zone: "mainboard" | "sideboard" | "commander") => void;
-}) {
+  zone: Exclude<Zone, "commander">;
+} & CardActions) {
   if (!lines.length) return null;
   const groups = groupLinesByType(lines);
   const total = lines.reduce((s, l) => s + l.quantity, 0);
@@ -394,11 +371,11 @@ export function DeckDisplay({
   deck,
   enriched,
   validation,
-  onSwapCard,
+  onSwap,
   swappingCard,
   targetPowerLevel,
   onQuantityChange,
-  onRemoveCard,
+  onRemove,
   onRebuildForPower,
   rebuilding,
 }: DeckDisplayProps) {
@@ -475,9 +452,9 @@ export function DeckDisplay({
               reason: deck.commanderReason,
             }}
             zone="commander"
-            onSwap={onSwapCard}
+            onSwap={onSwap}
             swapping={swappingCard === getDisplayName(commanderCard)}
-            onRemove={onRemoveCard}
+            onRemove={onRemove}
           />
         </section>
       )}
@@ -486,19 +463,19 @@ export function DeckDisplay({
         title="Main deck"
         lines={mainboard}
         zone="mainboard"
-        onSwap={onSwapCard}
+        onSwap={onSwap}
         swappingCard={swappingCard}
         onQuantityChange={onQuantityChange}
-        onRemove={onRemoveCard}
+        onRemove={onRemove}
       />
       <GroupedSection
         title="Sideboard"
         lines={sideboard}
         zone="sideboard"
-        onSwap={onSwapCard}
+        onSwap={onSwap}
         swappingCard={swappingCard}
         onQuantityChange={onQuantityChange}
-        onRemove={onRemoveCard}
+        onRemove={onRemove}
       />
 
       {(() => {

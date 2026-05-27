@@ -5,10 +5,8 @@ import { buildBaseUserMessage, systemPrompt } from "./prompts";
 import { swapResponseSchema } from "./deck-schema";
 import { trimDeckToCollection } from "./trim";
 import { nameKey } from "../scryfall";
-import { runDeckGeneration } from "./generation";
+import { requireOpenAIKey, runDeckGeneration } from "./generation";
 import type { BrewArgs, DeckResult } from "./types";
-
-export type { BrewArgs, DeckResult } from "./types";
 
 function serializePreviousDeck(deck: BuiltDeck): string {
   return JSON.stringify(
@@ -107,9 +105,6 @@ export async function swapCardWithAI(
     zone: "mainboard" | "sideboard" | "commander";
   },
 ): Promise<DeckResult> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY is not set.");
-
   const { previousDeck: deck, cardToReplace, zone } = args;
   const deckJson = JSON.stringify(
     {
@@ -123,7 +118,7 @@ export async function swapCardWithAI(
     2,
   );
 
-  const client = new OpenAI({ apiKey });
+  const client = new OpenAI({ apiKey: requireOpenAIKey() });
   const completion = await client.chat.completions.create({
     model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
     temperature: 0.6,

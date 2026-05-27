@@ -1,11 +1,7 @@
 import { z } from "zod";
-import { swapCardWithAI } from "@/lib/ai-deckbuilder";
+import { swapCardWithAI } from "@/lib/ai/flows";
 import { brewPreferencesFromBody } from "@/lib/api-brew-body";
-import {
-  brewRequestFields,
-  builtDeckBodySchema,
-  resolvedCollectionSchema,
-} from "@/lib/api-schemas";
+import { brewRequestFields, builtDeckBodySchema } from "@/lib/api-schemas";
 import {
   badRequest,
   deckResponse,
@@ -16,7 +12,6 @@ import type { BuiltDeck } from "@/lib/types";
 
 const bodySchema = z.object({
   ...brewRequestFields,
-  resolved: resolvedCollectionSchema,
   deck: builtDeckBodySchema,
   cardName: z.string().min(1),
   zone: z.enum(["mainboard", "sideboard", "commander"]),

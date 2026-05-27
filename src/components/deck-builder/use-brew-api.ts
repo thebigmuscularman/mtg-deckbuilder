@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { parseSseChunk, type DeckResult } from "./types";
 
 type StreamEvent =
@@ -58,21 +58,37 @@ async function readSse(
   let buffer = "";
   while (true) {
     const { done, value } = await reader.read();
-    // The final read often has done:true AND the last bytes in value — we must
-    // parse those before exiting or the terminal "done" event is never handled.
     if (value) {
       buffer += decoder.decode(value, { stream: !done });
       buffer = drainSseBuffer(buffer, onEvent);
     }
     if (done) break;
   }
-  // Defensive: if the stream closed mid-frame, force-parse any trailing event.
   if (buffer.trim()) {
     drainSseBuffer(
       buffer.endsWith("\n\n") ? buffer : `${buffer}\n\n`,
       onEvent,
     );
   }
+}
+
+async function postJson<T>(
+  path: string,
+  body: unknown,
+  fallbackError: string,
+): Promise<T> {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    // Catch handles non-JSON error bodies (e.g. Next.js HTML 500 page) so the
+    // user sees `fallbackError` instead of an opaque JSON parse failure.
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? fallbackError);
+  }
+  return (await res.json()) as T;
 }
 
 export type BrewApi = {
@@ -107,14 +123,7 @@ export function useBrewApi(): BrewApi {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(path, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Request failed");
-        return data as T;
+        return await postJson<T>(path, body, "Request failed");
       } catch (e) {
         setError(e instanceof Error ? e.message : "Request failed");
         return null;
@@ -172,14 +181,7 @@ export function useBrewApi(): BrewApi {
       setSwappingCard(cardName);
       setError(null);
       try {
-        const res = await fetch(path, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Swap failed");
-        return data as T;
+        return await postJson<T>(path, body, "Swap failed");
       } catch (e) {
         setError(e instanceof Error ? e.message : "Swap failed");
         return null;
@@ -190,15 +192,20 @@ export function useBrewApi(): BrewApi {
     [],
   );
 
-  return {
-    loading,
-    error,
-    setError,
-    streamStatus,
-    streamPreview,
-    call,
-    stream,
-    swap,
-    swappingCard,
-  };
+  // Memoize so downstream useCallback / useEffect dep arrays are stable
+  // across renders that didn't actually change any of these values.
+  return useMemo(
+    () => ({
+      loading,
+      error,
+      setError,
+      streamStatus,
+      streamPreview,
+      call,
+      stream,
+      swap,
+      swappingCard,
+    }),
+    [loading, error, streamStatus, streamPreview, call, stream, swap, swappingCard],
+  );
 }

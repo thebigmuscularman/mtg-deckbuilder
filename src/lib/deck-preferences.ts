@@ -211,28 +211,20 @@ export function buildPreferencesPromptBlock(
   format: string,
   prefs: DeckBuildPreferences,
 ): string {
-  const parts: string[] = [];
-  const avoid = getAvoidListPromptBlock(prefs.avoidCards ?? []);
-  if (avoid) parts.push(avoid);
-  const house = getHouseRulesPromptBlock(prefs.houseRules ?? DEFAULT_HOUSE_RULES);
-  if (house) parts.push(house);
-  const politics = getPoliticsFriendlyPromptBlock(format, !!prefs.politicsFriendly);
-  if (politics) parts.push(politics);
-  const illegal = getAllowIllegalPromptBlock(!!prefs.allowIllegal);
-  if (illegal) parts.push(illegal);
-  if (prefs.interactionDensity) {
-    const block = getInteractionDensityPromptBlock(prefs.interactionDensity);
-    if (block) parts.push(block);
-  }
-  if (prefs.gameLength) {
-    const block = getGameLengthPromptBlock(prefs.gameLength);
-    if (block) parts.push(block);
-  }
-  if (prefs.landsTarget) {
-    const block = getLandsTargetPromptBlock(format, prefs.landsTarget);
-    if (block) parts.push(block);
-  }
-  return parts.join("\n\n");
+  const blocks = [
+    getAvoidListPromptBlock(prefs.avoidCards ?? []),
+    getHouseRulesPromptBlock(prefs.houseRules ?? DEFAULT_HOUSE_RULES),
+    getPoliticsFriendlyPromptBlock(format, !!prefs.politicsFriendly),
+    getAllowIllegalPromptBlock(!!prefs.allowIllegal),
+    prefs.interactionDensity
+      ? getInteractionDensityPromptBlock(prefs.interactionDensity)
+      : null,
+    prefs.gameLength ? getGameLengthPromptBlock(prefs.gameLength) : null,
+    prefs.landsTarget
+      ? getLandsTargetPromptBlock(format, prefs.landsTarget)
+      : null,
+  ].filter((b): b is string => Boolean(b));
+  return blocks.join("\n\n");
 }
 
 export const TARGET_POWER_SCORE: Record<

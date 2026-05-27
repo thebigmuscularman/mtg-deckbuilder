@@ -4,30 +4,19 @@ import { exportDeck } from "@/lib/export-formats";
 import type { BuiltDeck } from "@/lib/types";
 import type { PowerLevelId } from "@/lib/power-levels";
 import { DeckDisplay } from "../DeckDisplay";
-import type { DeckResult } from "./types";
+import type { CardActions, DeckResult } from "./types";
 
 type Tab = { label: string; result: DeckResult };
 
-export type DeckStageProps = {
+export type DeckStageProps = CardActions & {
   tabs: Tab[];
   activeTab: number;
   setActiveTab: (i: number) => void;
   loading: boolean;
-  swappingCard: string | null;
   targetPowerLevel: PowerLevelId;
   onRefine: () => void;
   onShoreUp: () => void;
   onBrewAnother: () => void;
-  onSwap: (name: string, zone: "mainboard" | "sideboard" | "commander") => void;
-  onQuantityChange: (
-    name: string,
-    zone: "mainboard" | "sideboard" | "commander",
-    quantity: number,
-  ) => void;
-  onRemoveCard: (
-    name: string,
-    zone: "mainboard" | "sideboard" | "commander",
-  ) => void;
   onRebuildForPower: () => void;
 };
 
@@ -55,7 +44,7 @@ export function DeckStage(props: DeckStageProps) {
     onBrewAnother,
     onSwap,
     onQuantityChange,
-    onRemoveCard,
+    onRemove,
     onRebuildForPower,
   } = props;
   const activeResult = tabs[activeTab]?.result;
@@ -134,10 +123,10 @@ export function DeckStage(props: DeckStageProps) {
         enriched={enriched}
         validation={validation}
         targetPowerLevel={targetPowerLevel}
-        onSwapCard={onSwap}
+        onSwap={onSwap}
         swappingCard={swappingCard}
         onQuantityChange={onQuantityChange}
-        onRemoveCard={onRemoveCard}
+        onRemove={onRemove}
         onRebuildForPower={onRebuildForPower}
         rebuilding={loading}
       />

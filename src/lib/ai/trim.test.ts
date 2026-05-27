@@ -147,6 +147,52 @@ describe("trimDeckToCollection", () => {
     expect(landCount).toBeGreaterThanOrEqual(22);
   });
 
+  it("does not pad a collapsed spell base into a land-only deck", () => {
+    const coll = [resolved({ name: "Lightning Bolt", quantity: 4 }, bolt)];
+    const deck: BuiltDeck = {
+      name: "Hallucinated pile",
+      description: "d",
+      format: "modern",
+      commander: null,
+      mainboard: [
+        { name: "Lightning Bolt", quantity: 4 },
+        ...Array.from({ length: 14 }, (_, i) => ({
+          name: `Not In Collection ${i}`,
+          quantity: 4,
+        })),
+        ...Array.from({ length: 6 }, () => ({
+          name: "Mountain",
+          quantity: 1,
+        })),
+      ],
+      sideboard: [],
+      strategy: "s",
+      warnings: [],
+    };
+    const { deck: trimmed, adjustments } = trimDeckToCollection(deck, coll);
+    const lands = trimmed.mainboard
+      .filter((l) =>
+        ["Plains", "Island", "Swamp", "Mountain", "Forest"].includes(l.name),
+      )
+      .reduce((s, l) => s + l.quantity, 0);
+    const spells = trimmed.mainboard
+      .filter(
+        (l) =>
+          !["Plains", "Island", "Swamp", "Mountain", "Forest"].includes(
+            l.name,
+          ),
+      )
+      .reduce((s, l) => s + l.quantity, 0);
+
+    expect(spells).toBe(4);
+    // Virtual stubs let the AI's Mountains survive, but we must not pad to 22–26.
+    expect(lands).toBeLessThanOrEqual(6);
+    expect(trimmed.mainboard.reduce((s, l) => s + l.quantity, 0)).toBeLessThan(
+      30,
+    );
+    expect(adjustments.some((a) => a.includes("DECK INCOMPLETE"))).toBe(true);
+  });
+
   it("drops cards over budget cap", () => {
     const expensive = mockCard({
       name: "Expensive Rock",

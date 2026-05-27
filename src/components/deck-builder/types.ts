@@ -3,6 +3,17 @@ import type { BuiltDeck, ScryfallCard } from "@/lib/types";
 export type Step = "upload" | "review" | "deck";
 export type Color = "W" | "U" | "B" | "R" | "G";
 export type UploadMode = "file" | "paste";
+export type Zone = "mainboard" | "sideboard" | "commander";
+
+/** Card-row callbacks passed through the deck-view component tree.
+ *  All optional so read-only renders (e.g. saved-deck history) can omit them. */
+export type CardActions = {
+  onSwap?: (name: string, zone: Zone) => void;
+  onQuantityChange?: (name: string, zone: Zone, quantity: number) => void;
+  onRemove?: (name: string, zone: Zone) => void;
+  /** Name of the card currently being swapped, used to show a "Swapping…" label. */
+  swappingCard?: string | null;
+};
 
 export type DeckResult = {
   deck: BuiltDeck;

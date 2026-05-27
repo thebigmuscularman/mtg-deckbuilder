@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { buildDeckWithAI } from "@/lib/ai-deckbuilder";
+import { buildDeckWithAI } from "@/lib/ai/flows";
 import { brewPreferencesFromBody } from "@/lib/api-brew-body";
 import { brewRequestFields } from "@/lib/api-schemas";
 import {

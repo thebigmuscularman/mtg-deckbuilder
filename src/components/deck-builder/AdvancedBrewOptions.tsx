@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import type {
   GameLength,
   InteractionDensity,
@@ -49,13 +50,20 @@ export function AdvancedBrewOptions({
   onApplyPreset,
 }: AdvancedBrewOptionsProps) {
   const defaultLands = format === "commander" ? 37 : 24;
+  // Start empty so server-rendered HTML matches the client's first render;
+  // load saved presets in an effect after hydration.
+  const [presets, setPresets] = useState<ReturnType<typeof loadPlaygroupPresets>>([]);
+  useEffect(() => {
+    /* eslint-disable-next-line react-hooks/set-state-in-effect -- hydrating from localStorage */
+    setPresets(loadPlaygroupPresets());
+  }, []);
 
   const savePreset = () => {
     const name = window.prompt("Preset name (e.g. LGS Commander night)");
     if (!name?.trim()) return;
-    savePlaygroupPresets([
+    const next = [
       {
-        id: `${Date.now()}`,
+        id: crypto.randomUUID(),
         name: name.trim(),
         prefs: {
           allowIllegal,
@@ -64,11 +72,11 @@ export function AdvancedBrewOptions({
           landsTarget: landsTarget || undefined,
         },
       },
-      ...loadPlaygroupPresets(),
-    ]);
+      ...presets,
+    ];
+    savePlaygroupPresets(next);
+    setPresets(next);
   };
-
-  const presets = typeof window !== "undefined" ? loadPlaygroupPresets() : [];
 
   return (
     <div className="mb-6 space-y-4 rounded-2xl border border-stone-800/80 bg-stone-950/30 p-4">

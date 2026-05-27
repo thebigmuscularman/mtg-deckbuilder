@@ -1,11 +1,7 @@
 import { z } from "zod";
-import { refineDeckWithAI } from "@/lib/ai-deckbuilder";
+import { refineDeckWithAI } from "@/lib/ai/flows";
 import { brewPreferencesFromBody } from "@/lib/api-brew-body";
-import {
-  brewRequestFields,
-  builtDeckBodySchema,
-  resolvedCollectionSchema,
-} from "@/lib/api-schemas";
+import { brewRequestFields, builtDeckBodySchema } from "@/lib/api-schemas";
 import {
   badRequest,
   deckResponse,
@@ -16,7 +12,6 @@ import type { BuiltDeck } from "@/lib/types";
 
 const bodySchema = z.object({
   ...brewRequestFields,
-  resolved: resolvedCollectionSchema,
   deck: builtDeckBodySchema,
   errors: z.array(z.string()),
 });
