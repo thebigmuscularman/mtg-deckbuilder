@@ -878,8 +878,93 @@ export function DeckBuilderApp() {
               className="mb-4 w-full rounded-xl border border-stone-700/60 bg-stone-950/60 px-4 py-3 text-stone-100 placeholder:text-stone-600 focus:border-amber-500 focus:outline-none"
             />
 
+            <div className="mb-7 rounded-2xl border border-amber-700/30 bg-amber-950/10 p-5">
+              <div className="mb-1 flex items-baseline justify-between gap-3">
+                <p className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-amber-500/80">
+                  Power level
+                </p>
+                <p className="text-[0.65rem] uppercase tracking-wider text-stone-500">
+                  Card power · not price
+                </p>
+              </div>
+              <h3 className="mb-2 text-lg font-bold text-amber-100">
+                How powerful should the deck be?
+              </h3>
+              <p className="mb-4 text-xs text-stone-400">
+                Picks the kind of cards the AI reaches for — staples, fast mana,
+                tutors, combos. Use the budget cap below for a price ceiling.
+              </p>
+
+              <div
+                role="group"
+                aria-label="Power level"
+                className="mb-3 flex h-2 w-full overflow-hidden rounded-full ring-1 ring-stone-800/80"
+              >
+                {(Object.keys(POWER_LEVELS) as PowerLevelId[]).map((id) => {
+                  const active = powerLevel === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setPowerLevel(id)}
+                      aria-label={POWER_LEVELS[id].label}
+                      aria-pressed={active}
+                      className={`h-full flex-1 transition ${
+                        active
+                          ? "bg-gradient-to-r from-amber-400 to-amber-600"
+                          : "bg-stone-800/70 hover:bg-stone-700/70"
+                      }`}
+                    />
+                  );
+                })}
+              </div>
+              <div className="mb-4 flex justify-between text-[0.6rem] uppercase tracking-wider text-stone-500">
+                <span>1 · Casual</span>
+                <span>10 · cEDH</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {(Object.keys(POWER_LEVELS) as PowerLevelId[]).map((id) => {
+                  const meta = POWER_LEVELS[id];
+                  const active = powerLevel === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setPowerLevel(id)}
+                      className={`card-hover rounded-xl px-3 py-2.5 text-left text-sm transition ${
+                        active
+                          ? "bg-gradient-to-br from-amber-400 to-amber-600 text-stone-950 shadow-lg"
+                          : "bg-stone-800/80 text-stone-300 ring-1 ring-stone-700/60"
+                      }`}
+                      aria-pressed={active}
+                    >
+                      <span className="block font-bold">{meta.label}</span>
+                      <span
+                        className={`block text-[0.65rem] uppercase tracking-wider ${
+                          active ? "text-stone-900/80" : "text-stone-500"
+                        }`}
+                      >
+                        {meta.bracket}
+                      </span>
+                      <span
+                        className={`mt-1 block text-[0.7rem] leading-snug ${
+                          active ? "text-stone-900/90" : "text-stone-400"
+                        }`}
+                      >
+                        {meta.short}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-3 text-xs italic text-stone-500">
+                {POWER_LEVELS[powerLevel].hint}
+              </p>
+            </div>
+
             <label className="mb-3 block text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
-              Budget cap <span className="text-stone-600">(optional, USD per card)</span>
+              Budget cap <span className="text-stone-600">(optional, $ per card)</span>
             </label>
             <input
               type="number"
@@ -888,49 +973,11 @@ export function DeckBuilderApp() {
               value={budgetMax || ""}
               onChange={(e) => setBudgetMax(parseFloat(e.target.value) || 0)}
               placeholder="e.g. 5 — no card over $5"
-              className="mb-7 w-full rounded-xl border border-stone-700/60 bg-stone-950/60 px-4 py-3 text-stone-100 placeholder:text-stone-600 focus:border-amber-500 focus:outline-none"
+              className="mb-2 w-full rounded-xl border border-stone-700/60 bg-stone-950/60 px-4 py-3 text-stone-100 placeholder:text-stone-600 focus:border-amber-500 focus:outline-none"
             />
-
-            <label className="mb-3 block text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
-              Power level
-            </label>
-            <div className="mb-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {(Object.keys(POWER_LEVELS) as PowerLevelId[]).map((id) => {
-                const meta = POWER_LEVELS[id];
-                const active = powerLevel === id;
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setPowerLevel(id)}
-                    className={`card-hover rounded-xl px-3 py-2.5 text-left text-sm transition ${
-                      active
-                        ? "bg-gradient-to-br from-amber-400 to-amber-600 text-stone-950 shadow-lg"
-                        : "bg-stone-800/80 text-stone-300 ring-1 ring-stone-700/60"
-                    }`}
-                    aria-pressed={active}
-                  >
-                    <span className="block font-bold">{meta.label}</span>
-                    <span
-                      className={`block text-[0.65rem] uppercase tracking-wider ${
-                        active ? "text-stone-900/80" : "text-stone-500"
-                      }`}
-                    >
-                      {meta.bracket}
-                    </span>
-                    <span
-                      className={`mt-1 block text-[0.7rem] leading-snug ${
-                        active ? "text-stone-900/90" : "text-stone-400"
-                      }`}
-                    >
-                      {meta.short}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            <p className="mb-7 text-xs italic text-stone-500">
-              {POWER_LEVELS[powerLevel].hint}
+            <p className="mb-7 text-xs text-stone-500">
+              Caps the price of any single card in USD. For card power, use the
+              power level above.
             </p>
 
             <label className="mb-3 block text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
