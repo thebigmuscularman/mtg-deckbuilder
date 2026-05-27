@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { refineDeckWithAI } from "@/lib/ai-deckbuilder";
+import { swapCardWithAI } from "@/lib/ai-deckbuilder";
 import {
   brewPreferencesFields,
   brewPreferencesFromBody,
@@ -45,23 +45,20 @@ const bodySchema = z.object({
     warnings: z.array(z.string()).default([]),
     format: z.enum(["standard", "modern", "commander"]),
   }),
-  errors: z.array(z.string()),
+  cardName: z.string().min(1),
+  zone: z.enum(["mainboard", "sideboard", "commander"]),
   strategy: z.string().optional(),
   colors: z.array(z.enum(["W", "U", "B", "R", "G"])).optional(),
-<<<<<<< Updated upstream
-=======
   budgetMax: z.number().positive().optional(),
   ...brewPreferencesFields,
->>>>>>> Stashed changes
 });
 
-export const maxDuration = 120;
+export const maxDuration = 90;
 
 export async function POST(request: Request) {
   try {
     const json = await request.json();
     const parsed = bodySchema.safeParse(json);
-
     if (!parsed.success) {
       return NextResponse.json(
         { error: "Invalid request", details: parsed.error.flatten() },
@@ -69,51 +66,37 @@ export async function POST(request: Request) {
       );
     }
 
-<<<<<<< Updated upstream
-    const { format, resolved, deck, errors, strategy, colors } = parsed.data;
-=======
     const {
       format,
       resolved,
       deck,
-      errors,
+      cardName,
+      zone,
       strategy,
       colors,
       budgetMax,
       ...prefBody
     } = parsed.data;
     const brewPrefs = brewPreferencesFromBody(prefBody);
->>>>>>> Stashed changes
     const playable = resolved.filter((r) => r.card) as ResolvedCollectionCard[];
-
-    if (!errors.length) {
-      return NextResponse.json(
-        { error: "No errors provided to fix." },
-        { status: 400 },
-      );
-    }
-
     const previousDeck: BuiltDeck = { ...deck, warnings: deck.warnings ?? [] };
 
-    const { deck: refinedDeck, validationErrors } = await refineDeckWithAI(
+    const { deck: swapped, validationErrors } = await swapCardWithAI(
       format as FormatId,
       playable,
       previousDeck,
-      errors,
+      cardName,
+      zone,
       strategy,
       colors,
-<<<<<<< Updated upstream
-=======
       budgetMax,
-      undefined,
       brewPrefs,
->>>>>>> Stashed changes
     );
 
-    const validation = validateDeck(refinedDeck, playable);
+    const validation = validateDeck(swapped, playable);
 
     return NextResponse.json({
-      deck: refinedDeck,
+      deck: swapped,
       validation: {
         valid: validation.valid,
         errors: validation.errors,
@@ -127,7 +110,7 @@ export async function POST(request: Request) {
       },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Refine failed";
+    const message = err instanceof Error ? err.message : "Swap failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

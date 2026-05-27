@@ -1,5 +1,20 @@
 "use client";
 
+<<<<<<< Updated upstream
+=======
+import Image from "next/image";
+import { useMemo } from "react";
+import { groupLinesByType } from "@/lib/card-groups";
+import { comparePowerToTarget } from "@/lib/deck-preferences";
+import type { PowerLevelId } from "@/lib/power-levels";
+import {
+  computeDeckStats,
+  estimateDeckPowerLevel,
+  getLandWarnings,
+} from "@/lib/deck-stats";
+import { exportDeck, type ExportFormat } from "@/lib/export-formats";
+import { deckEstimatedValue } from "@/lib/prices";
+>>>>>>> Stashed changes
 import { getCardImage, getDisplayName } from "@/lib/scryfall";
 import type { BuiltDeck, ScryfallCard } from "@/lib/types";
 
@@ -22,6 +37,12 @@ interface DeckDisplayProps {
     errors: string[];
     warnings: string[];
   };
+<<<<<<< Updated upstream
+=======
+  targetPowerLevel?: PowerLevelId;
+  onSwapCard?: (name: string, zone: "mainboard" | "sideboard" | "commander") => void;
+  swappingCard?: string | null;
+>>>>>>> Stashed changes
 }
 
 const MANA_COLORS: Record<string, string> = {
@@ -196,13 +217,63 @@ function Section({
   );
 }
 
+<<<<<<< Updated upstream
 export function DeckDisplay({ deck, enriched, validation }: DeckDisplayProps) {
+=======
+function copyText(text: string) {
+  void navigator.clipboard.writeText(text);
+}
+
+export function DeckDisplay({
+  deck,
+  enriched,
+  validation,
+  targetPowerLevel,
+  onSwapCard,
+  swappingCard,
+}: DeckDisplayProps) {
+>>>>>>> Stashed changes
   const mainboard: EnrichedLine[] =
     enriched?.mainboard ??
     deck.mainboard.map((l) => ({ ...l, card: null }));
   const sideboard: EnrichedLine[] =
+<<<<<<< Updated upstream
     enriched?.sideboard ??
     deck.sideboard.map((l) => ({ ...l, card: null }));
+=======
+    enriched?.sideboard ?? deck.sideboard.map((l) => ({ ...l, card: null }));
+  const commanderCard = enriched?.commander ?? null;
+
+  const stats = useMemo(() => computeDeckStats(mainboard), [mainboard]);
+  const landWarnings = useMemo(
+    () => getLandWarnings(deck.format, stats),
+    [deck.format, stats],
+  );
+  const powerEstimate = useMemo(
+    () => estimateDeckPowerLevel(mainboard, commanderCard),
+    [mainboard, commanderCard],
+  );
+  const powerComparison = useMemo(() => {
+    if (!targetPowerLevel) return null;
+    return comparePowerToTarget(
+      powerEstimate.score,
+      powerEstimate.label,
+      targetPowerLevel,
+    );
+  }, [powerEstimate, targetPowerLevel]);
+  const deckValue = useMemo(
+    () => deckEstimatedValue(mainboard, commanderCard),
+    [mainboard, commanderCard],
+  );
+
+  const commanderIdentity =
+    commanderCard?.color_identity ?? [];
+
+  const handleExport = (format: ExportFormat) => {
+    const text = exportDeck(deck, format);
+    copyText(text);
+  };
+>>>>>>> Stashed changes
 
   return (
     <div className="space-y-10">
@@ -277,6 +348,38 @@ export function DeckDisplay({ deck, enriched, validation }: DeckDisplayProps) {
         </div>
       </header>
 
+<<<<<<< Updated upstream
+=======
+      <DeckStatsPanel
+        stats={stats}
+        landWarnings={landWarnings}
+        powerEstimate={powerEstimate}
+        powerComparison={powerComparison}
+        deckValueUsd={deckValue}
+        colorIdentity={commanderIdentity}
+      />
+
+      <div className="flex flex-wrap gap-2">
+        {(
+          [
+            ["moxfield", "Copy Moxfield"],
+            ["archidekt", "Copy Archidekt"],
+            ["mtga", "Copy MTGA"],
+            ["plain", "Copy plain"],
+          ] as const
+        ).map(([fmt, label]) => (
+          <button
+            key={fmt}
+            type="button"
+            onClick={() => handleExport(fmt)}
+            className="card-hover rounded-lg bg-stone-900/60 px-3 py-1.5 text-xs font-semibold text-amber-200/90 ring-1 ring-stone-700/60 hover:text-amber-100"
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+>>>>>>> Stashed changes
       <div className="glass-panel relative overflow-hidden rounded-2xl p-6">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-500/60 to-transparent" />
         <h3 className="mb-3 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.25em] text-amber-400">

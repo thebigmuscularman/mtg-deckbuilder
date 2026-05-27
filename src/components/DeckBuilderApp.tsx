@@ -2,6 +2,29 @@
 
 import { useCallback, useState } from "react";
 import { FORMATS } from "@/lib/formats";
+<<<<<<< Updated upstream
+=======
+import {
+  DEFAULT_HOUSE_RULES,
+  type HouseRules,
+} from "@/lib/deck-preferences";
+import {
+  DEFAULT_POWER_LEVEL,
+  POWER_LEVELS,
+  isPowerLevelId,
+  type PowerLevelId,
+} from "@/lib/power-levels";
+import { collectionEstimatedValue, formatUsd } from "@/lib/prices";
+import {
+  loadCollection,
+  loadDeckHistory,
+  loadPrefs,
+  pushDeckHistory,
+  saveCollection,
+  savePrefs,
+  type SavedDeckEntry,
+} from "@/lib/storage";
+>>>>>>> Stashed changes
 import type {
   BuiltDeck,
   FormatId,
@@ -24,11 +47,71 @@ const COLOR_META: Record<
   G: { name: "Green", bg: "bg-green-400", ring: "ring-green-500", text: "text-green-950", symbol: "🌲" },
 };
 
+<<<<<<< Updated upstream
+=======
+const BUILD_VARIANTS = [
+  { label: "Aggro", hint: "Build an aggressive deck — low curve, max pressure, fast wins." },
+  { label: "Midrange", hint: "Build a midrange deck — resilient two-for-ones, flexible interaction." },
+  { label: "Control", hint: "Build a control deck — removal, card draw, late-game finishers." },
+] as const;
+
+const HOUSE_RULE_OPTIONS: Array<{
+  key: keyof HouseRules;
+  label: string;
+  hint: string;
+}> = [
+  {
+    key: "noMassLandDestruction",
+    label: "No mass land destruction",
+    hint: "Armageddon, Jokulhaups, Ravages of War, etc.",
+  },
+  {
+    key: "noInfiniteCombos",
+    label: "No infinite combos",
+    hint: "Two-card game wins and Thoracle lines.",
+  },
+  {
+    key: "noExtraTurns",
+    label: "No extra turns",
+    hint: "Time Warp chains and similar.",
+  },
+];
+
+function parseSseChunk(buffer: string): {
+  events: Array<{ event: string; data: string }>;
+  rest: string;
+} {
+  const events: Array<{ event: string; data: string }> = [];
+  const parts = buffer.split("\n\n");
+  const rest = parts.pop() ?? "";
+  for (const part of parts) {
+    let event = "message";
+    let data = "";
+    for (const line of part.split("\n")) {
+      if (line.startsWith("event:")) event = line.slice(6).trim();
+      else if (line.startsWith("data:")) data += line.slice(5).trim();
+    }
+    if (data) events.push({ event, data });
+  }
+  return { events, rest };
+}
+
+>>>>>>> Stashed changes
 export function DeckBuilderApp() {
   const [step, setStep] = useState<Step>("upload");
   const [format, setFormat] = useState<FormatId>("modern");
   const [strategy, setStrategy] = useState("");
   const [colors, setColors] = useState<Color[]>([]);
+<<<<<<< Updated upstream
+=======
+  const [budgetMax, setBudgetMax] = useState<number>(0);
+  const [powerLevel, setPowerLevel] =
+    useState<PowerLevelId>(DEFAULT_POWER_LEVEL);
+  const [avoidList, setAvoidList] = useState("");
+  const [houseRules, setHouseRules] = useState<HouseRules>(DEFAULT_HOUSE_RULES);
+  const [politicsFriendly, setPoliticsFriendly] = useState(false);
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+>>>>>>> Stashed changes
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resolved, setResolved] = useState<ResolvedCollectionCard[]>([]);
@@ -47,7 +130,178 @@ export function DeckBuilderApp() {
     validation: { valid: boolean; errors: string[]; warnings: string[] };
   } | null>(null);
 
+<<<<<<< Updated upstream
   const handleFile = useCallback(async (file: File) => {
+=======
+  const activeResult = deckTabs[activeTab]?.result ?? null;
+
+  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect -- restore prefs/collection from localStorage */
+    const prefs = loadPrefs();
+    if (prefs.format) setFormat(prefs.format);
+    if (prefs.colors?.length) setColors(prefs.colors as Color[]);
+    if (prefs.strategy) setStrategy(prefs.strategy);
+    if (prefs.budgetMax) setBudgetMax(prefs.budgetMax);
+    if (isPowerLevelId(prefs.powerLevel)) setPowerLevel(prefs.powerLevel);
+    if (prefs.avoidList) setAvoidList(prefs.avoidList);
+    if (prefs.houseRules) setHouseRules({ ...DEFAULT_HOUSE_RULES, ...prefs.houseRules });
+    if (prefs.politicsFriendly) setPoliticsFriendly(prefs.politicsFriendly);
+    if (prefs.theme) setTheme(prefs.theme);
+    const saved = loadCollection();
+    if (saved) {
+      setResolved(saved.resolved);
+      setSummary(saved.summary);
+      setStep("review");
+    }
+    setDeckHistory(loadDeckHistory());
+    setHydrated(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    document.documentElement.classList.remove("light", "dark");
+    document.documentElement.classList.add(theme);
+    savePrefs({
+      format,
+      colors,
+      strategy,
+      budgetMax,
+      powerLevel,
+      avoidList,
+      houseRules,
+      politicsFriendly,
+      theme,
+    });
+  }, [
+    hydrated,
+    format,
+    colors,
+    strategy,
+    budgetMax,
+    powerLevel,
+    avoidList,
+    houseRules,
+    politicsFriendly,
+    theme,
+  ]);
+
+  const collectionValue = useMemo(
+    () =>
+      collectionEstimatedValue(
+        resolved.map((r) => ({ card: r.card, quantity: r.entry.quantity })),
+      ),
+    [resolved],
+  );
+
+  const applyResolved = useCallback(
+    (data: {
+      resolved: ResolvedCollectionCard[];
+      summary: { totalEntries: number; unresolved: unknown[] };
+      uniqueCount: number;
+    }) => {
+      setResolved(data.resolved);
+      const sum = {
+        total: data.summary.totalEntries,
+        unique: data.uniqueCount,
+        unresolved: Array.isArray(data.summary.unresolved)
+          ? data.summary.unresolved.length
+          : 0,
+      };
+      setSummary(sum);
+      saveCollection({
+        resolved: data.resolved,
+        summary: sum,
+        savedAt: new Date().toISOString(),
+      });
+      setStep("review");
+    },
+    [],
+  );
+
+  const resolveCollection = useCallback(
+    async (text: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch("/api/resolve-collection", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Upload failed");
+        applyResolved(data);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Upload failed");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [applyResolved],
+  );
+
+  const handleFile = useCallback(
+    async (file: File) => {
+      setLoading(true);
+      setError(null);
+      const form = new FormData();
+      form.append("file", file);
+      try {
+        const res = await fetch("/api/resolve-collection", {
+          method: "POST",
+          body: form,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Upload failed");
+        applyResolved(data);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Upload failed");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [applyResolved],
+  );
+
+  const buildPayload = useCallback(
+    () => ({
+      format,
+      resolved,
+      strategy,
+      colors,
+      budgetMax: budgetMax > 0 ? budgetMax : undefined,
+      powerLevel,
+      avoidList: avoidList.trim() || undefined,
+      houseRules,
+      politicsFriendly: format === "commander" ? politicsFriendly : false,
+    }),
+    [
+      format,
+      resolved,
+      strategy,
+      colors,
+      budgetMax,
+      powerLevel,
+      avoidList,
+      houseRules,
+      politicsFriendly,
+    ],
+  );
+
+  const applyDeckResult = useCallback((label: string, data: DeckResult) => {
+    setDeckTabs((prev) => {
+      const next = [...prev, { label, result: data }];
+      setActiveTab(next.length - 1);
+      return next;
+    });
+    pushDeckHistory(data.deck);
+    setDeckHistory(loadDeckHistory());
+    setStep("deck");
+  }, []);
+
+  const buildDeckStream = useCallback(async () => {
+>>>>>>> Stashed changes
     setLoading(true);
     setError(null);
     const form = new FormData();
@@ -416,6 +670,136 @@ export function DeckBuilderApp() {
               className="mb-7 w-full rounded-xl border border-stone-700/60 bg-stone-950/60 px-4 py-3 text-stone-100 placeholder:text-stone-600 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-600/40"
             />
 
+<<<<<<< Updated upstream
+=======
+            <label className="mb-3 block text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
+              Budget cap <span className="text-stone-600">(optional, USD per card)</span>
+            </label>
+            <input
+              type="number"
+              min={0}
+              step={0.5}
+              value={budgetMax || ""}
+              onChange={(e) => setBudgetMax(parseFloat(e.target.value) || 0)}
+              placeholder="e.g. 5 — no card over $5"
+              className="mb-7 w-full rounded-xl border border-stone-700/60 bg-stone-950/60 px-4 py-3 text-stone-100 placeholder:text-stone-600 focus:border-amber-500 focus:outline-none"
+            />
+
+            <label className="mb-3 block text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
+              Power level
+            </label>
+            <div className="mb-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {(Object.keys(POWER_LEVELS) as PowerLevelId[]).map((id) => {
+                const meta = POWER_LEVELS[id];
+                const active = powerLevel === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setPowerLevel(id)}
+                    className={`card-hover rounded-xl px-3 py-2.5 text-left text-sm transition ${
+                      active
+                        ? "bg-gradient-to-br from-amber-400 to-amber-600 text-stone-950 shadow-lg"
+                        : "bg-stone-800/80 text-stone-300 ring-1 ring-stone-700/60"
+                    }`}
+                    aria-pressed={active}
+                  >
+                    <span className="block font-bold">{meta.label}</span>
+                    <span
+                      className={`block text-[0.65rem] uppercase tracking-wider ${
+                        active ? "text-stone-900/80" : "text-stone-500"
+                      }`}
+                    >
+                      {meta.bracket}
+                    </span>
+                    <span
+                      className={`mt-1 block text-[0.7rem] leading-snug ${
+                        active ? "text-stone-900/90" : "text-stone-400"
+                      }`}
+                    >
+                      {meta.short}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mb-7 text-xs italic text-stone-500">
+              {POWER_LEVELS[powerLevel].hint}
+            </p>
+
+            <label className="mb-3 block text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
+              Ban list <span className="text-stone-600">(optional)</span>
+            </label>
+            <textarea
+              value={avoidList}
+              onChange={(e) => setAvoidList(e.target.value)}
+              placeholder={"Sol Ring\nCyclonic Rift\none card per line or comma-separated"}
+              rows={3}
+              className="mb-2 w-full rounded-xl border border-stone-700/60 bg-stone-950/60 px-4 py-3 font-mono text-sm text-stone-100 placeholder:text-stone-600 focus:border-amber-500 focus:outline-none"
+            />
+            <p className="mb-7 text-xs italic text-stone-500">
+              Cards you own but never want in the deck — enforced even if the AI
+              picks them.
+            </p>
+
+            <label className="mb-3 block text-xs font-semibold uppercase tracking-[0.2em] text-amber-500/80">
+              House rules <span className="text-stone-600">(optional)</span>
+            </label>
+            <fieldset className="mb-2 space-y-2">
+              <legend className="sr-only">Table house rules</legend>
+              {HOUSE_RULE_OPTIONS.map(({ key, label, hint }) => (
+                <label
+                  key={key}
+                  className="card-hover flex cursor-pointer items-start gap-3 rounded-xl bg-stone-800/80 px-3 py-2.5 ring-1 ring-stone-700/60"
+                >
+                  <input
+                    type="checkbox"
+                    checked={houseRules[key]}
+                    onChange={(e) =>
+                      setHouseRules((prev) => ({
+                        ...prev,
+                        [key]: e.target.checked,
+                      }))
+                    }
+                    className="mt-1 h-4 w-4 rounded border-stone-600 bg-stone-900 text-amber-500 focus:ring-amber-500"
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-stone-200">
+                      {label}
+                    </span>
+                    <span className="block text-xs text-stone-500">{hint}</span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+            <p className="mb-7 text-xs italic text-stone-500">
+              Checked rules are hard-filtered from the final list, not just
+              suggested to the AI.
+            </p>
+
+            {format === "commander" && (
+              <>
+                <label className="card-hover mb-7 flex cursor-pointer items-start gap-3 rounded-xl bg-stone-800/80 px-3 py-2.5 ring-1 ring-stone-700/60">
+                  <input
+                    type="checkbox"
+                    checked={politicsFriendly}
+                    onChange={(e) => setPoliticsFriendly(e.target.checked)}
+                    className="mt-1 h-4 w-4 rounded border-stone-600 bg-stone-900 text-amber-500 focus:ring-amber-500"
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-stone-200">
+                      Politics-friendly Commander
+                    </span>
+                    <span className="block text-xs text-stone-500">
+                      Group hug, pillowfort, and fair wins — avoid solitaire combo
+                      turns and hard locks.
+                    </span>
+                  </span>
+                </label>
+              </>
+            )}
+
+>>>>>>> Stashed changes
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
@@ -506,9 +890,18 @@ export function DeckBuilderApp() {
             </button>
           </div>
           <DeckDisplay
+<<<<<<< Updated upstream
             deck={deckResult.deck}
             enriched={deckResult.enriched}
             validation={deckResult.validation}
+=======
+            deck={activeResult.deck}
+            enriched={activeResult.enriched}
+            validation={activeResult.validation}
+            targetPowerLevel={powerLevel}
+            onSwapCard={(name, zone) => void swapCard(name, zone)}
+            swappingCard={swappingCard}
+>>>>>>> Stashed changes
           />
         </div>
       )}

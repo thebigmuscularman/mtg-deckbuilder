@@ -15,7 +15,35 @@ import type {
   ResolvedCollectionCard,
   ScryfallCard,
 } from "./types";
+<<<<<<< Updated upstream
 import { getDisplayName } from "./scryfall";
+=======
+import { countLandsInLines } from "./deck-stats";
+import { cardUsdPrice } from "./prices";
+import {
+  buildAvoidNameKeys,
+  buildPreferencesPromptBlock,
+  cardViolatesHouseRules,
+  DEFAULT_HOUSE_RULES,
+  isNameAvoided,
+  type DeckBuildPreferences,
+  type HouseRules,
+} from "./deck-preferences";
+import { getPowerPromptBlock } from "./power-levels";
+import { getDisplayName, nameKey } from "./scryfall";
+
+/** Max mainboard lands after trim backfill — avoids padding with basics when spells were dropped. */
+const MAX_MAINBOARD_LANDS: Record<FormatId, number> = {
+  commander: 40,
+  standard: 26,
+  modern: 26,
+};
+
+export type DeckBuildProgress =
+  | { type: "status"; message: string }
+  | { type: "token"; delta: string }
+  | { type: "attempt"; attempt: number; maxAttempts: number };
+>>>>>>> Stashed changes
 
 const COLOR_NAMES: Record<string, string> = {
   W: "White",
@@ -133,11 +161,25 @@ function trimDeckToCollection(
   deck: BuiltDeck,
   resolved: ResolvedCollectionCard[],
   colorPref?: string[],
+<<<<<<< Updated upstream
+=======
+  maxBudgetUsd?: number,
+  brewPrefs?: DeckBuildPreferences,
+>>>>>>> Stashed changes
 ): { deck: BuiltDeck; adjustments: string[] } {
   const formatRules = getFormat(deck.format);
   const owned = buildOwnedQuantities(resolved);
   const adjustments: string[] = [];
   const prefColors = (colorPref ?? []).filter((c) => "WUBRG".includes(c));
+  const avoidKeys = buildAvoidNameKeys(brewPrefs?.avoidCards ?? [], resolved);
+  const houseRules: HouseRules = {
+    ...DEFAULT_HOUSE_RULES,
+    ...brewPrefs?.houseRules,
+  };
+  const enforceHouseRules =
+    houseRules.noMassLandDestruction ||
+    houseRules.noInfiniteCombos ||
+    houseRules.noExtraTurns;
 
   const clampLines = (lines: DeckCardLine[], zone: "mainboard" | "sideboard") => {
     const merged = new Map<string, DeckCardLine>();
@@ -163,6 +205,20 @@ function trimDeckToCollection(
       }
 
       const display = getDisplayName(ownedEntry.card);
+      if (isNameAvoided(display, avoidKeys) || isNameAvoided(line.name, avoidKeys)) {
+        adjustments.push(`Dropped ${display} from ${zone} — on your ban list.`);
+        continue;
+      }
+      if (enforceHouseRules) {
+        const violation = cardViolatesHouseRules(ownedEntry.card, houseRules);
+        if (violation) {
+          adjustments.push(
+            `Dropped ${display} from ${zone} — violates house rule (${violation}).`,
+          );
+          continue;
+        }
+      }
+
       const formatMax = isBasicLand(display)
         ? 99
         : formatRules.maxCopies(ownedEntry.card);
@@ -205,6 +261,22 @@ function trimDeckToCollection(
     } else {
       commander = getDisplayName(ownedEntry.card);
       commanderCard = ownedEntry.card;
+      if (isNameAvoided(commander, avoidKeys)) {
+        adjustments.push(`Dropped commander ${commander} — on your ban list.`);
+        commander = null;
+        commanderReason = undefined;
+        commanderCard = null;
+      } else if (enforceHouseRules && commanderCard) {
+        const violation = cardViolatesHouseRules(commanderCard, houseRules);
+        if (violation) {
+          adjustments.push(
+            `Dropped commander ${commander} — violates house rule (${violation}).`,
+          );
+          commander = null;
+          commanderReason = undefined;
+          commanderCard = null;
+        }
+      }
     }
   }
 
@@ -532,6 +604,11 @@ function buildBaseUserMessage(
   resolved: ResolvedCollectionCard[],
   strategyHint?: string,
   colorPref?: string[],
+<<<<<<< Updated upstream
+=======
+  maxBudgetUsd?: number,
+  brewPrefs?: DeckBuildPreferences,
+>>>>>>> Stashed changes
 ): string {
   const collectionContext = buildCollectionContext(resolved, format);
   const unresolved = resolved.filter((r) => !r.card).map((r) => r.entry.name);
@@ -578,6 +655,25 @@ The user has explicitly requested these colors: ${colorList}.
     userMessage += prefBlock;
   }
 
+<<<<<<< Updated upstream
+=======
+  if (maxBudgetUsd && maxBudgetUsd > 0) {
+    userMessage += `\n\n*** BUDGET CAP — $${maxBudgetUsd} USD per card (Scryfall nonfoil) ***
+- Do not include any card whose typical price exceeds $${maxBudgetUsd}.
+- Prefer budget-friendly alternatives from the collection. Basic lands are always allowed.`;
+  }
+
+  const powerBlock = getPowerPromptBlock(brewPrefs?.powerLevel);
+  if (powerBlock) {
+    userMessage += `\n\n${powerBlock}`;
+  }
+
+  const prefsBlock = buildPreferencesPromptBlock(format, brewPrefs ?? {});
+  if (prefsBlock) {
+    userMessage += `\n\n${prefsBlock}`;
+  }
+
+>>>>>>> Stashed changes
   if (strategyHint?.trim()) {
     userMessage += `\n\nUser preference: ${strategyHint.trim()}`;
   }
@@ -593,6 +689,12 @@ async function runDeckGeneration(
   baseMessages: OpenAI.Chat.ChatCompletionMessageParam[],
   maxAttempts: number,
   colorPref?: string[],
+<<<<<<< Updated upstream
+=======
+  maxBudgetUsd?: number,
+  onProgress?: (event: DeckBuildProgress) => void,
+  brewPrefs?: DeckBuildPreferences,
+>>>>>>> Stashed changes
 ): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -647,7 +749,17 @@ async function runDeckGeneration(
       warnings: parsed.data.warnings ?? [],
     };
 
+<<<<<<< Updated upstream
     const { deck, adjustments } = trimDeckToCollection(rawDeck, resolved, colorPref);
+=======
+    const { deck, adjustments } = trimDeckToCollection(
+      rawDeck,
+      resolved,
+      colorPref,
+      maxBudgetUsd,
+      brewPrefs,
+    );
+>>>>>>> Stashed changes
     if (adjustments.length) {
       deck.warnings = [...deck.warnings, ...adjustments];
     }
@@ -669,7 +781,17 @@ async function runDeckGeneration(
     format,
     warnings: parsedDeck.warnings ?? [],
   };
+<<<<<<< Updated upstream
   const { deck, adjustments } = trimDeckToCollection(rawDeck, resolved, colorPref);
+=======
+  const { deck, adjustments } = trimDeckToCollection(
+    rawDeck,
+    resolved,
+    colorPref,
+    maxBudgetUsd,
+    brewPrefs,
+  );
+>>>>>>> Stashed changes
   deck.warnings = [...deck.warnings, ...adjustments, ...lastErrors];
 
   return { deck, validationErrors: lastErrors };
@@ -680,13 +802,116 @@ export async function buildDeckWithAI(
   resolved: ResolvedCollectionCard[],
   strategyHint?: string,
   colorPref?: string[],
+<<<<<<< Updated upstream
 ): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
   const userMessage = buildBaseUserMessage(format, resolved, strategyHint, colorPref);
+=======
+  maxBudgetUsd?: number,
+  onProgress?: (event: DeckBuildProgress) => void,
+  brewPrefs?: DeckBuildPreferences,
+): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
+  const userMessage = buildBaseUserMessage(
+    format,
+    resolved,
+    strategyHint,
+    colorPref,
+    maxBudgetUsd,
+    brewPrefs,
+  );
+>>>>>>> Stashed changes
   const baseMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt(format) },
     { role: "user", content: userMessage },
   ];
+<<<<<<< Updated upstream
   return runDeckGeneration(format, resolved, baseMessages, 3, colorPref);
+=======
+  return runDeckGeneration(
+    format,
+    resolved,
+    baseMessages,
+    3,
+    colorPref,
+    maxBudgetUsd,
+    onProgress,
+    brewPrefs,
+  );
+}
+
+export async function shoreUpDeckWithAI(
+  format: FormatId,
+  resolved: ResolvedCollectionCard[],
+  previousDeck: BuiltDeck,
+  weaknesses: string[],
+  strategyHint?: string,
+  colorPref?: string[],
+  maxBudgetUsd?: number,
+  onProgress?: (event: DeckBuildProgress) => void,
+  brewPrefs?: DeckBuildPreferences,
+): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
+  const userMessage = buildBaseUserMessage(
+    format,
+    resolved,
+    strategyHint,
+    colorPref,
+    maxBudgetUsd,
+    brewPrefs,
+  );
+  const previousJson = JSON.stringify(
+    {
+      name: previousDeck.name,
+      description: previousDeck.description,
+      archetype: previousDeck.archetype,
+      overview: previousDeck.overview,
+      winConditions: previousDeck.winConditions,
+      strengths: previousDeck.strengths,
+      weaknesses: previousDeck.weaknesses,
+      commander: previousDeck.commander,
+      commanderReason: previousDeck.commanderReason,
+      mainboard: previousDeck.mainboard,
+      sideboard: previousDeck.sideboard,
+      strategy: previousDeck.strategy,
+    },
+    null,
+    2,
+  );
+
+  const weaknessList = weaknesses
+    .map((w, i) => `${i + 1}. ${w}`)
+    .join("\n");
+
+  const baseMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt(format) },
+    { role: "user", content: userMessage },
+    { role: "assistant", content: previousJson },
+    {
+      role: "user",
+      content: `The deck above has these self-identified WEAKNESSES:
+${weaknessList}
+
+Revise the deck to SHORE UP each weakness using cards from the collection — swap in answers, hate pieces, alternative win conditions, or curve adjustments that mitigate the specific vulnerabilities listed.
+
+Hard constraints:
+- This is a strategic upgrade, NOT a rebuild. Keep the commander, archetype, game plan, and the bulk of the mainboard intact.
+- Swap out the LOWEST-impact cards (filler creatures, redundant utility, overlapping effects) for targeted answers to each weakness. Aim to change 4-10 slots in a 60-card deck, 6-12 in a Commander deck.
+- Every replacement must come from the collection list and obey the same format / quantity / color-identity rules as before.
+- Update the "weaknesses" array in your response to reflect the new (smaller) list of vulnerabilities after your changes — if a weakness is fully addressed, remove it; otherwise rewrite it to reflect what's left.
+- Update "strengths" if your changes meaningfully reinforce them.
+- Return the FULL deck JSON, not a diff.`,
+    },
+  ];
+
+  return runDeckGeneration(
+    format,
+    resolved,
+    baseMessages,
+    3,
+    colorPref,
+    maxBudgetUsd,
+    onProgress,
+    brewPrefs,
+  );
+>>>>>>> Stashed changes
 }
 
 export async function refineDeckWithAI(
@@ -696,8 +921,23 @@ export async function refineDeckWithAI(
   errors: string[],
   strategyHint?: string,
   colorPref?: string[],
+<<<<<<< Updated upstream
 ): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
   const userMessage = buildBaseUserMessage(format, resolved, strategyHint, colorPref);
+=======
+  maxBudgetUsd?: number,
+  onProgress?: (event: DeckBuildProgress) => void,
+  brewPrefs?: DeckBuildPreferences,
+): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
+  const userMessage = buildBaseUserMessage(
+    format,
+    resolved,
+    strategyHint,
+    colorPref,
+    maxBudgetUsd,
+    brewPrefs,
+  );
+>>>>>>> Stashed changes
   const previousJson = JSON.stringify(
     {
       name: previousDeck.name,
@@ -731,5 +971,132 @@ export async function refineDeckWithAI(
     },
   ];
 
+<<<<<<< Updated upstream
   return runDeckGeneration(format, resolved, baseMessages, 4, colorPref);
+=======
+  return runDeckGeneration(
+    format,
+    resolved,
+    baseMessages,
+    4,
+    colorPref,
+    maxBudgetUsd,
+    onProgress,
+    brewPrefs,
+  );
+}
+
+const swapResponseSchema = z.object({
+  replacements: z.array(
+    z.object({
+      name: aiRequiredString,
+      quantity: z.number().int().positive(),
+      reason: aiOptionalString,
+    }),
+  ),
+});
+
+export async function swapCardWithAI(
+  format: FormatId,
+  resolved: ResolvedCollectionCard[],
+  deck: BuiltDeck,
+  cardToReplace: string,
+  zone: "mainboard" | "sideboard" | "commander",
+  strategyHint?: string,
+  colorPref?: string[],
+  maxBudgetUsd?: number,
+  brewPrefs?: DeckBuildPreferences,
+): Promise<{ deck: BuiltDeck; validationErrors: string[] }> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is not set.");
+  }
+
+  const userMessage = buildBaseUserMessage(
+    format,
+    resolved,
+    strategyHint,
+    colorPref,
+    maxBudgetUsd,
+    brewPrefs,
+  );
+
+  const deckJson = JSON.stringify(
+    {
+      name: deck.name,
+      commander: deck.commander,
+      mainboard: deck.mainboard,
+      sideboard: deck.sideboard,
+      strategy: deck.strategy,
+    },
+    null,
+    2,
+  );
+
+  const client = new OpenAI({ apiKey });
+  const completion = await client.chat.completions.create({
+    model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+    temperature: 0.6,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: systemPrompt(format) },
+      { role: "user", content: userMessage },
+      { role: "assistant", content: deckJson },
+      {
+        role: "user",
+        content: `Replace "${cardToReplace}" in the ${zone} with a BETTER alternative from the collection for this deck's plan.
+Return JSON only:
+{
+  "replacements": [{ "name": "Exact Card Name", "quantity": 1, "reason": "why this swap improves the deck" }]
+}
+- Use only cards from the collection. Same quantity rules as the format.
+- Do NOT include "${cardToReplace}" in replacements.
+- If ${zone} is commander, replacements must be a single legendary commander you own.`,
+      },
+    ],
+  });
+
+  const raw = completion.choices[0]?.message?.content;
+  if (!raw) throw new Error("AI returned an empty response");
+
+  const parsed = swapResponseSchema.safeParse(JSON.parse(raw));
+  if (!parsed.success) {
+    throw new Error("AI swap response was invalid");
+  }
+
+  const updated: BuiltDeck = { ...deck, warnings: [...deck.warnings] };
+  const removeKey = nameKey(cardToReplace);
+
+  if (zone === "commander") {
+    const rep = parsed.data.replacements[0];
+    if (!rep) throw new Error("No replacement commander suggested");
+    updated.commander = rep.name;
+    updated.commanderReason = rep.reason;
+  } else {
+    const list = zone === "mainboard" ? updated.mainboard : updated.sideboard;
+    const filtered = list.filter((l) => nameKey(l.name) !== removeKey);
+    const merged = [...filtered, ...parsed.data.replacements];
+    if (zone === "mainboard") updated.mainboard = merged;
+    else updated.sideboard = merged;
+  }
+
+  const { deck: trimmed, adjustments } = trimDeckToCollection(
+    updated,
+    resolved,
+    colorPref,
+    maxBudgetUsd,
+    brewPrefs,
+  );
+  trimmed.warnings = [
+    ...trimmed.warnings,
+    ...adjustments,
+    `Swapped out ${cardToReplace} for ${parsed.data.replacements.map((r) => r.name).join(", ")}.`,
+  ];
+
+  const validation = validateDeck(trimmed, resolved);
+  return {
+    deck: trimmed,
+    validationErrors: validation.valid ? [] : validation.errors,
+  };
+>>>>>>> Stashed changes
 }
