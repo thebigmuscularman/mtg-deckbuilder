@@ -31,10 +31,20 @@ const COLOR_NAMES: Record<string, string> = {
   G: "Green",
 };
 
+const WUBRG = ["W", "U", "B", "R", "G"];
+
+function sortWubrg(ci: string[]): string[] {
+  return [...ci].sort((a, b) => WUBRG.indexOf(a) - WUBRG.indexOf(b));
+}
+
+function colorTag(ci: string[]): string {
+  if (!ci.length) return "C";
+  return sortWubrg(ci).join("");
+}
+
 function formatColorIdentity(ci: string[]): string {
   if (!ci.length) return "Colorless (C)";
-  const order = ["W", "U", "B", "R", "G"];
-  const sorted = [...ci].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  const sorted = sortWubrg(ci);
   return `${sorted.join("")} (${sorted.map((c) => COLOR_NAMES[c] ?? c).join("/")})`;
 }
 
@@ -79,38 +89,111 @@ const deckSchema = z.object({
   warnings: stringList,
 });
 
-function buildCollectionContext(
+type PromptCard = {
+  name: string;
+  quantity: number;
+  typeLine: string;
+  identity: string[];
+  card: ScryfallCard;
+};
+
+function gatherPromptCards(
   resolved: ResolvedCollectionCard[],
   format: FormatId,
-): string {
+): PromptCard[] {
   const totals = new Map<string, { qty: number; card: ScryfallCard }>();
   for (const r of resolved) {
     if (!r.card) continue;
     const name = getDisplayName(r.card);
     const key = name.toLowerCase();
     const existing = totals.get(key);
-    if (existing) {
-      existing.qty += r.entry.quantity;
-    } else {
-      totals.set(key, { qty: r.entry.quantity, card: r.card });
-    }
+    if (existing) existing.qty += r.entry.quantity;
+    else totals.set(key, { qty: r.entry.quantity, card: r.card });
   }
 
   const formatRules = getFormat(format);
-  const playable = [...totals.values()].map(({ qty, card }) => {
+  return [...totals.values()].map(({ qty, card }) => {
     const name = getDisplayName(card);
     const formatMax = isBasicLand(name) ? 99 : formatRules.maxCopies(card);
-    const ci = card.color_identity ?? [];
-    const ciTag = ci.length ? ci.join("") : "C";
     return {
       name,
       quantity: Math.min(qty, formatMax),
       typeLine: card.type_line,
-      colors: [ciTag],
+      identity: sortWubrg(card.color_identity ?? []),
+      card,
     };
   });
+}
 
-  return collectionToPromptList(playable);
+function buildCollectionContext(
+  resolved: ResolvedCollectionCard[],
+  format: FormatId,
+  prefColors: string[] = [],
+): string {
+  const cards = gatherPromptCards(resolved, format);
+  const filtered =
+    prefColors.length > 0
+      ? cards.filter((c) => c.identity.every((x) => prefColors.includes(x)))
+      : cards;
+
+  if (prefColors.length >= 2) {
+    const multi = filtered.filter((c) => c.identity.length >= 2);
+    const mono = filtered.filter((c) => c.identity.length === 1);
+    const colorless = filtered.filter((c) => c.identity.length === 0);
+    const lines: string[] = [];
+
+    if (multi.length) {
+      lines.push(
+        `=== MULTICOLOR SIGNATURE CARDS (${multi.length}) — HIGH PRIORITY, prefer these heavily; they pay off your color commitment ===`,
+      );
+      lines.push(
+        collectionToPromptList(
+          multi.map((c) => ({
+            name: c.name,
+            quantity: c.quantity,
+            typeLine: c.typeLine,
+            colors: [colorTag(c.identity)],
+          })),
+        ),
+      );
+    }
+    if (mono.length) {
+      lines.push(`\n=== MONO-COLOR CARDS (${mono.length}) ===`);
+      lines.push(
+        collectionToPromptList(
+          mono.map((c) => ({
+            name: c.name,
+            quantity: c.quantity,
+            typeLine: c.typeLine,
+            colors: [colorTag(c.identity)],
+          })),
+        ),
+      );
+    }
+    if (colorless.length) {
+      lines.push(`\n=== COLORLESS / ARTIFACTS (${colorless.length}) ===`);
+      lines.push(
+        collectionToPromptList(
+          colorless.map((c) => ({
+            name: c.name,
+            quantity: c.quantity,
+            typeLine: c.typeLine,
+            colors: ["C"],
+          })),
+        ),
+      );
+    }
+    return lines.join("\n");
+  }
+
+  return collectionToPromptList(
+    filtered.map((c) => ({
+      name: c.name,
+      quantity: c.quantity,
+      typeLine: c.typeLine,
+      colors: [colorTag(c.identity)],
+    })),
+  );
 }
 
 function buildOwnedQuantities(
@@ -350,13 +433,14 @@ function trimDeckToCollection(
     const isLand = isBasic || typeLine.includes("land");
 
     let score = 0;
-    // Mana base is the load-bearing structure of every deck — protect it.
     if (isBasic) score += 5000;
     else if (isLand) score += 1200;
-    // The AI named this card in how the deck wins / its strengths — protect it.
-    // Word-boundary check avoids "Bolt" matching every "thunderbolt" in the prose.
+    // Word-boundary avoids "Bolt" matching "thunderbolt" in the prose.
     const nameWordBoundary = new RegExp(`\\b${escapeRegex(name)}\\b`);
     if (nameWordBoundary.test(importanceText)) score += 800;
+    // Multicolor cards in a multi-color deck are signature picks; protect them.
+    const cardIdentity = card?.color_identity ?? [];
+    if (prefColors.length >= 2 && cardIdentity.length >= 2) score += 600;
     // Higher copy counts in 60-card formats signal core 4-of staples.
     score += line.quantity * 120;
     // The AI tends to list important cards first; later positions skew toward filler.
@@ -527,6 +611,7 @@ Design principles:
 - For Commander: pick the best commander from the collection for the available card pool; explain the synergy
 - For 60-card formats: target exactly 60 mainboard cards; sideboard 0-15 if useful
 - Use exact English card names as they appear on Scryfall
+- For ANY multi-color deck (whether by commander or user-requested combo), PRIORITIZE multicolor cards (gold cards, hybrid cards) over mono-color staples. Multicolor cards justify the color commitment and are the signature payoffs of running multiple colors — they should make up a meaningful fraction of every multi-color deck, not be afterthoughts.
 
 For EVERY card you include (mainboard, sideboard, and commander) give a short "reason" (one sentence, 8-20 words) explaining why it earns its slot in THIS deck — its role, synergy, or matchup it answers. Be specific to the deck's plan, not generic.
 
@@ -552,8 +637,7 @@ function buildColorInventory(resolved: ResolvedCollectionCard[]): string {
   const counts = new Map<string, number>();
   for (const r of resolved) {
     if (!r.card) continue;
-    const ci = r.card.color_identity ?? [];
-    const key = ci.length ? [...ci].sort().join("") : "C";
+    const key = colorTag(r.card.color_identity ?? []);
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   const rows = [...counts.entries()].sort((a, b) => b[1] - a[1]);
@@ -567,9 +651,11 @@ function buildBaseUserMessage(
   colorPref?: string[],
   maxBudgetUsd?: number,
 ): string {
-  const collectionContext = buildCollectionContext(resolved, format);
+  const prefColors = sortWubrg(
+    (colorPref ?? []).filter((c) => "WUBRG".includes(c)),
+  );
+  const collectionContext = buildCollectionContext(resolved, format, prefColors);
   const unresolved = resolved.filter((r) => !r.card).map((r) => r.entry.name);
-  const prefColors = (colorPref ?? []).filter((c) => "WUBRG".includes(c));
 
   const limitNote =
     format === "commander"
@@ -593,22 +679,30 @@ ${buildColorInventory(resolved)}`
 
   if (prefColors.length) {
     const colorList = formatColorIdentity(prefColors);
-    const sorted = [...prefColors].sort(
-      (a, b) => "WUBRG".indexOf(a) - "WUBRG".indexOf(b),
-    );
+    const tag = prefColors.join("");
+    const multicolorEmphasis =
+      prefColors.length >= 2
+        ? `
+
+*** MULTICOLOR PICKS ARE THE HEART OF THIS DECK ***
+- The collection list shows a "MULTICOLOR SIGNATURE CARDS" section first — these cards use TWO OR MORE of your requested colors at once and are usually the strongest, most synergistic picks in a ${tag} deck.
+- A well-built ${tag} deck is NOT a 50/50 split of mono-color cards. It leans HEAVILY on multicolor cards that justify the color commitment (gold cards, hybrid cards, multicolor dual lands).
+- Aim for AT LEAST 8-15 multicolor cards in a 2-color Commander deck (more if more colors). For 60-card formats, include every playable multicolor signature card you own.
+- If a multicolor card and a mono-color card are roughly equivalent in role, pick the multicolor card — it signals the deck's identity.`
+        : "";
     const prefBlock =
       format === "commander"
         ? `\n\n*** USER COLOR REQUIREMENT — HIGHEST PRIORITY ***
 The user has explicitly requested these colors for the deck: ${colorList}.
-- The commander's color identity MUST be EXACTLY ${sorted.join("")} (every requested color, no extras, no fewer).
-- Every other card's color identity must be a SUBSET of {${sorted.join(", ")}}.
-- Cards outside these colors are ILLEGAL and will be removed. Pick again rather than including them.
-- The mana base must produce all ${sorted.length} requested color${sorted.length === 1 ? "" : "s"}.`
+- The commander's color identity MUST be EXACTLY ${tag} (every requested color, no extras, no fewer).
+- Every other card's color identity must be a SUBSET of {${prefColors.join(", ")}}.
+- The mana base must produce all ${prefColors.length} requested color${prefColors.length === 1 ? "" : "s"}.
+- Cards outside these colors are not even shown in the collection list below. Use only what's listed.${multicolorEmphasis}`
         : `\n\n*** USER COLOR REQUIREMENT — HIGHEST PRIORITY ***
 The user has explicitly requested these colors: ${colorList}.
-- Every card you include must have a color identity that is a SUBSET of {${sorted.join(", ")}}.
-- Do not include cards with any other color. Pick alternatives from the collection instead.
-- The mana base must reliably produce all ${sorted.length} requested color${sorted.length === 1 ? "" : "s"}.`;
+- Every card you include must have a color identity that is a SUBSET of {${prefColors.join(", ")}}.
+- The mana base must reliably produce all ${prefColors.length} requested color${prefColors.length === 1 ? "" : "s"}.
+- Cards outside these colors are not even shown in the collection list below.${multicolorEmphasis}`;
     userMessage += prefBlock;
   }
 
