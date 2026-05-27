@@ -25,36 +25,22 @@ interface DeckDisplayProps {
   };
 }
 
-const MANA_COLORS: Record<string, string> = {
-  W: "bg-yellow-50 text-yellow-900",
-  U: "bg-sky-300 text-sky-950",
-  B: "bg-stone-800 text-stone-100 ring-1 ring-stone-600",
-  R: "bg-red-400 text-red-950",
-  G: "bg-green-400 text-green-950",
-  C: "bg-stone-500 text-stone-50",
-};
+function manaClass(inner: string): string {
+  // Scryfall mana costs come as "{2}{W}{U/B}{X}{T}". The mana-font class is the
+  // lowercased contents with the "/" stripped (e.g. {U/B} -> ms-ub, {2/W} -> ms-2w).
+  const cleaned = inner.toLowerCase().replace(/\//g, "");
+  return `ms ms-${cleaned} ms-cost ms-shadow`;
+}
 
 function formatManaCost(cost?: string) {
   if (!cost) return null;
   const symbols = cost.match(/\{[^}]+\}/g) ?? [];
+  if (!symbols.length) return null;
   return (
-    <span className="flex flex-wrap items-center gap-0.5">
+    <span className="flex flex-wrap items-center gap-0.5 text-base leading-none">
       {symbols.map((sym, i) => {
         const inner = sym.slice(1, -1);
-        const colorKey = inner.length === 1 && MANA_COLORS[inner] ? inner : "C";
-        const isNumber = /^\d+$/.test(inner);
-        return (
-          <span
-            key={i}
-            className={`mana-pip ${
-              isNumber ? "bg-stone-700 text-stone-100" : MANA_COLORS[colorKey] ?? "bg-stone-700 text-stone-100"
-            }`}
-            style={{ width: "1.25rem", height: "1.25rem", fontSize: "0.7rem" }}
-            title={inner}
-          >
-            {inner}
-          </span>
-        );
+        return <i key={i} className={manaClass(inner)} title={inner} />;
       })}
     </span>
   );

@@ -15,13 +15,13 @@ type Color = "W" | "U" | "B" | "R" | "G";
 
 const COLOR_META: Record<
   Color,
-  { name: string; bg: string; ring: string; text: string; symbol: string }
+  { name: string; bg: string; ring: string; text: string; ms: string; pip: string }
 > = {
-  W: { name: "White", bg: "bg-yellow-50", ring: "ring-yellow-200", text: "text-yellow-900", symbol: "☀" },
-  U: { name: "Blue", bg: "bg-sky-300", ring: "ring-sky-400", text: "text-sky-950", symbol: "💧" },
-  B: { name: "Black", bg: "bg-stone-800", ring: "ring-stone-600", text: "text-stone-100", symbol: "☠" },
-  R: { name: "Red", bg: "bg-red-400", ring: "ring-red-500", text: "text-red-950", symbol: "🔥" },
-  G: { name: "Green", bg: "bg-green-400", ring: "ring-green-500", text: "text-green-950", symbol: "🌲" },
+  W: { name: "White", bg: "bg-yellow-50", ring: "ring-yellow-200", text: "text-yellow-900", ms: "ms-w", pip: "bg-[#fdfbce] text-[#7c5e0a]" },
+  U: { name: "Blue", bg: "bg-sky-300", ring: "ring-sky-400", text: "text-sky-950", ms: "ms-u", pip: "bg-[#bcdaf7] text-[#0c4a6e]" },
+  B: { name: "Black", bg: "bg-stone-800", ring: "ring-stone-600", text: "text-stone-100", ms: "ms-b", pip: "bg-[#1f1d1c] text-[#d6c4cb] ring-1 ring-stone-600" },
+  R: { name: "Red", bg: "bg-red-400", ring: "ring-red-500", text: "text-red-950", ms: "ms-r", pip: "bg-[#f19b79] text-[#7c2d12]" },
+  G: { name: "Green", bg: "bg-green-400", ring: "ring-green-500", text: "text-green-950", ms: "ms-g", pip: "bg-[#9fcba6] text-[#14532d]" },
 };
 
 export function DeckBuilderApp() {
@@ -385,11 +385,9 @@ export function DeckBuilderApp() {
                       </span>
                       <span
                         aria-hidden="true"
-                        className={`flex h-7 w-7 items-center justify-center rounded-full text-sm ${
-                          active ? "bg-black/10" : "bg-stone-700/60"
-                        }`}
+                        className={`flex h-7 w-7 items-center justify-center rounded-full text-base shadow-inner ${meta.pip}`}
                       >
-                        {meta.symbol}
+                        <i className={`ms ${meta.ms}`} />
                       </span>
                       <span className="flex-1">{meta.name}</span>
                     </label>
