@@ -1,11 +1,17 @@
-import type { HouseRules } from "./deck-preferences";
+import type {
+  GameLength,
+  HouseRules,
+  InteractionDensity,
+} from "./deck-preferences";
 import type { PowerLevelId } from "./power-levels";
 import type { BuiltDeck, FormatId, ResolvedCollectionCard } from "./types";
 
 const COLLECTION_KEY = "mtg-deckbuilder:collection";
 const PREFS_KEY = "mtg-deckbuilder:prefs";
 const DECKS_KEY = "mtg-deckbuilder:decks";
+const PRESETS_KEY = "mtg-deckbuilder:presets";
 const MAX_DECKS = 8;
+const MAX_PRESETS = 12;
 
 export type SavedCollection = {
   resolved: ResolvedCollectionCard[];
@@ -20,9 +26,20 @@ export type UserPrefs = {
   budgetMax: number;
   theme: "dark" | "light";
   powerLevel: PowerLevelId;
-  avoidList: string;
-  houseRules: HouseRules;
-  politicsFriendly: boolean;
+  avoidList?: string;
+  mustIncludeList?: string;
+  houseRules?: HouseRules;
+  politicsFriendly?: boolean;
+  allowIllegal?: boolean;
+  interactionDensity?: InteractionDensity;
+  gameLength?: GameLength;
+  landsTarget?: number;
+};
+
+export type PlaygroupPreset = {
+  id: string;
+  name: string;
+  prefs: Partial<UserPrefs>;
 };
 
 export type SavedDeckEntry = {
@@ -32,61 +49,56 @@ export type SavedDeckEntry = {
   label: string;
 };
 
-export function loadCollection(): SavedCollection | null {
-  if (typeof window === "undefined") return null;
+/** Read JSON from localStorage, returning `fallback` on missing/parse error. */
+function read<T>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
   try {
-    const raw = localStorage.getItem(COLLECTION_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as SavedCollection;
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
   } catch {
-    return null;
+    return fallback;
   }
 }
 
-export function saveCollection(data: SavedCollection): void {
+/** Write JSON to localStorage, silently swallowing quota errors. */
+function write(key: string, value: unknown): void {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(COLLECTION_KEY, JSON.stringify(data));
+    localStorage.setItem(key, JSON.stringify(value));
   } catch {
     // quota exceeded — ignore
   }
 }
 
-export function loadPrefs(): Partial<UserPrefs> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = localStorage.getItem(PREFS_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) as Partial<UserPrefs>;
-  } catch {
-    return {};
-  }
-}
-
-export function savePrefs(prefs: UserPrefs): void {
+function remove(key: string): void {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    localStorage.removeItem(key);
   } catch {
     // ignore
   }
 }
 
-export function loadDeckHistory(): SavedDeckEntry[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(DECKS_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw) as SavedDeckEntry[];
-  } catch {
-    return [];
-  }
-}
+export const loadCollection = (): SavedCollection | null =>
+  read<SavedCollection | null>(COLLECTION_KEY, null);
+
+export const saveCollection = (data: SavedCollection): void =>
+  write(COLLECTION_KEY, data);
+
+export const clearCollection = (): void => remove(COLLECTION_KEY);
+
+export const loadPrefs = (): Partial<UserPrefs> =>
+  read<Partial<UserPrefs>>(PREFS_KEY, {});
+
+export const savePrefs = (prefs: Partial<UserPrefs>): void =>
+  write(PREFS_KEY, prefs);
+
+export const loadDeckHistory = (): SavedDeckEntry[] =>
+  read<SavedDeckEntry[]>(DECKS_KEY, []);
 
 export function pushDeckHistory(deck: BuiltDeck): SavedDeckEntry[] {
   // `${Date.now()}` collides when several decks are pushed in the same tick
-  // (e.g. buildThreeDecks awaits Promise.all). Add a random suffix so each
-  // entry is uniquely identified and React keys don't duplicate.
+  // (e.g. buildThreeDecks). Random suffix keeps React keys unique.
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const entry: SavedDeckEntry = {
     id,
@@ -96,19 +108,12 @@ export function pushDeckHistory(deck: BuiltDeck): SavedDeckEntry[] {
   };
   const prev = loadDeckHistory().filter((d) => d.deck.name !== deck.name);
   const next = [entry, ...prev].slice(0, MAX_DECKS);
-  if (typeof window !== "undefined") {
-    try {
-      localStorage.setItem(DECKS_KEY, JSON.stringify(next));
-    } catch {
-      // ignore quota errors
-    }
-  }
+  write(DECKS_KEY, next);
   return next;
 }
 
-export function clearStoredData(): void {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(COLLECTION_KEY);
-  localStorage.removeItem(PREFS_KEY);
-  localStorage.removeItem(DECKS_KEY);
-}
+export const loadPlaygroupPresets = (): PlaygroupPreset[] =>
+  read<PlaygroupPreset[]>(PRESETS_KEY, []);
+
+export const savePlaygroupPresets = (presets: PlaygroupPreset[]): void =>
+  write(PRESETS_KEY, presets.slice(0, MAX_PRESETS));

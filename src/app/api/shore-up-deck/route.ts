@@ -1,114 +1,58 @@
-import { NextResponse } from "next/server";
 import { z } from "zod";
-import { shoreUpDeckWithAI } from "@/lib/ai-deckbuilder";
+import { shoreUpDeckWithAI } from "@/lib/ai/flows";
+import { brewPreferencesFromBody } from "@/lib/api-brew-body";
+import { brewRequestFields, builtDeckBodySchema } from "@/lib/api-schemas";
 import {
-  brewPreferencesFields,
-  brewPreferencesFromBody,
-} from "@/lib/api-brew-body";
-import { validateDeck } from "@/lib/deck-validation";
-import type { BuiltDeck, FormatId, ResolvedCollectionCard } from "@/lib/types";
-
-const cardLineSchema = z.object({
-  name: z.string(),
-  quantity: z.number().int().positive(),
-  scryfallId: z.string().optional(),
-  reason: z.string().optional(),
-});
+  badRequest,
+  deckResponse,
+  playableFrom,
+  serverError,
+} from "@/lib/api-route-helpers";
+import type { BuiltDeck } from "@/lib/types";
 
 const bodySchema = z.object({
-  format: z.enum(["standard", "modern", "commander"]),
-  resolved: z.array(
-    z.object({
-      entry: z.object({
-        name: z.string(),
-        quantity: z.number(),
-        set: z.string().optional(),
-        collectorNumber: z.string().optional(),
-      }),
-      card: z.any().nullable(),
-      error: z.string().optional(),
-    }),
-  ),
-  deck: z.object({
-    name: z.string(),
-    description: z.string(),
-    commander: z.string().nullable(),
-    commanderReason: z.string().optional(),
-    archetype: z.string().optional(),
-    overview: z.string().optional(),
-    winConditions: z.array(z.string()).optional(),
-    strengths: z.array(z.string()).optional(),
-    weaknesses: z.array(z.string()).optional(),
-    mainboard: z.array(cardLineSchema),
-    sideboard: z.array(cardLineSchema),
-    strategy: z.string(),
-    warnings: z.array(z.string()).default([]),
-    format: z.enum(["standard", "modern", "commander"]),
-  }),
-  strategy: z.string().optional(),
-  colors: z.array(z.enum(["W", "U", "B", "R", "G"])).optional(),
-  budgetMax: z.number().positive().optional(),
-  ...brewPreferencesFields,
+  ...brewRequestFields,
+  deck: builtDeckBodySchema,
+  // Optional override (e.g. "Rebuild toward target power") — when supplied
+  // these take precedence over the deck's own `weaknesses` array.
+  weaknesses: z.array(z.string()).optional(),
 });
 
 export const maxDuration = 120;
 
 export async function POST(request: Request) {
   try {
-    const json = await request.json();
-    const parsed = bodySchema.safeParse(json);
+    const parsed = bodySchema.safeParse(await request.json());
+    if (!parsed.success) return badRequest("Invalid request", parsed.error.flatten());
 
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Invalid request", details: parsed.error.flatten() },
-        { status: 400 },
-      );
-    }
-
-    const { format, resolved, deck, strategy, colors, budgetMax, ...prefBody } =
-      parsed.data;
-    const brewPrefs = brewPreferencesFromBody(prefBody);
-    const playable = resolved.filter((r) => r.card) as ResolvedCollectionCard[];
-    const previousDeck: BuiltDeck = { ...deck, warnings: deck.warnings ?? [] };
-    const weaknesses = deck.weaknesses?.filter((w) => w.trim().length > 0) ?? [];
-
+    const { format, resolved, deck, strategy, colors, budgetMax } = parsed.data;
+    const overrideWeaknesses =
+      parsed.data.weaknesses?.filter((w) => w.trim().length > 0) ?? [];
+    const deckWeaknesses =
+      deck.weaknesses?.filter((w) => w.trim().length > 0) ?? [];
+    const weaknesses = overrideWeaknesses.length
+      ? overrideWeaknesses
+      : deckWeaknesses;
     if (!weaknesses.length) {
-      return NextResponse.json(
-        { error: "Deck has no listed weaknesses to address." },
-        { status: 400 },
-      );
+      return badRequest("Deck has no listed weaknesses to address.");
     }
 
-    const { deck: revised, validationErrors } = await shoreUpDeckWithAI(
-      format as FormatId,
-      playable,
+    const brewPrefs = brewPreferencesFromBody(parsed.data);
+    const playable = playableFrom(resolved);
+    const previousDeck: BuiltDeck = { ...deck, warnings: deck.warnings ?? [] };
+
+    const result = await shoreUpDeckWithAI({
+      format,
+      resolved: playable,
       previousDeck,
       weaknesses,
-      strategy,
-      colors,
-      budgetMax,
-      undefined,
+      strategyHint: strategy,
+      colorPref: colors,
+      maxBudgetUsd: budgetMax,
       brewPrefs,
-    );
-
-    const validation = validateDeck(revised, playable);
-
-    return NextResponse.json({
-      deck: revised,
-      validation: {
-        valid: validation.valid,
-        errors: validation.errors,
-        warnings: validation.warnings,
-      },
-      validationErrors,
-      enriched: {
-        mainboard: validation.enrichedMainboard,
-        sideboard: validation.enrichedSideboard,
-        commander: validation.commanderCard,
-      },
     });
+    return deckResponse(result, playable, brewPrefs.allowIllegal);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Shore-up failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return serverError(err, "Shore-up failed");
   }
 }

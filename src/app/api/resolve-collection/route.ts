@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { parseCollectionFile, parseCollectionText } from "@/lib/collection";
-import { cardKey, resolveCollection } from "@/lib/scryfall";
+import { parseCollectionText } from "@/lib/collection";
+import { cardKey, nameKey, resolveCollection } from "@/lib/scryfall";
 import type {
   CollectionSummary,
   ResolvedCollectionCard,
@@ -13,7 +13,6 @@ export async function POST(request: Request) {
     const contentType = request.headers.get("content-type") ?? "";
 
     let text: string;
-    let filename = "collection.csv";
 
     if (contentType.includes("multipart/form-data")) {
       const form = await request.formData();
@@ -24,14 +23,13 @@ export async function POST(request: Request) {
           { status: 400 },
         );
       }
-      text = await file.text();
-      filename = file.name;
-      if (!filename.toLowerCase().endsWith(".txt")) {
+      if (!file.name.toLowerCase().endsWith(".txt")) {
         return NextResponse.json(
           { error: "Only .txt files are supported." },
           { status: 400 },
         );
       }
+      text = await file.text();
     } else {
       const body = await request.json();
       if (!body.text || typeof body.text !== "string") {
@@ -43,9 +41,7 @@ export async function POST(request: Request) {
       text = body.text;
     }
 
-    const entries = filename.toLowerCase().endsWith(".txt")
-      ? parseCollectionFile(text, filename)
-      : parseCollectionText(text);
+    const entries = parseCollectionText(text);
 
     if (!entries.length) {
       return NextResponse.json(
@@ -58,7 +54,7 @@ export async function POST(request: Request) {
 
     const resolved: ResolvedCollectionCard[] = entries.map((entry) => {
       const key = cardKey(entry);
-      const card = scryfallMap.get(key) ?? scryfallMap.get(entry.name.toLowerCase()) ?? null;
+      const card = scryfallMap.get(key) ?? scryfallMap.get(nameKey(entry.name)) ?? null;
       return {
         entry,
         card,

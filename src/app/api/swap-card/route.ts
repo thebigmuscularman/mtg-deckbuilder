@@ -1,70 +1,28 @@
-import { NextResponse } from "next/server";
 import { z } from "zod";
-import { swapCardWithAI } from "@/lib/ai-deckbuilder";
+import { swapCardWithAI } from "@/lib/ai/flows";
+import { brewPreferencesFromBody } from "@/lib/api-brew-body";
+import { brewRequestFields, builtDeckBodySchema } from "@/lib/api-schemas";
 import {
-  brewPreferencesFields,
-  brewPreferencesFromBody,
-} from "@/lib/api-brew-body";
-import { validateDeck } from "@/lib/deck-validation";
-import type { BuiltDeck, FormatId, ResolvedCollectionCard } from "@/lib/types";
-
-const cardLineSchema = z.object({
-  name: z.string(),
-  quantity: z.number().int().positive(),
-  scryfallId: z.string().optional(),
-  reason: z.string().optional(),
-});
+  badRequest,
+  deckResponse,
+  playableFrom,
+  serverError,
+} from "@/lib/api-route-helpers";
+import type { BuiltDeck } from "@/lib/types";
 
 const bodySchema = z.object({
-  format: z.enum(["standard", "modern", "commander"]),
-  resolved: z.array(
-    z.object({
-      entry: z.object({
-        name: z.string(),
-        quantity: z.number(),
-        set: z.string().optional(),
-        collectorNumber: z.string().optional(),
-      }),
-      card: z.any().nullable(),
-      error: z.string().optional(),
-    }),
-  ),
-  deck: z.object({
-    name: z.string(),
-    description: z.string(),
-    commander: z.string().nullable(),
-    commanderReason: z.string().optional(),
-    archetype: z.string().optional(),
-    overview: z.string().optional(),
-    winConditions: z.array(z.string()).optional(),
-    strengths: z.array(z.string()).optional(),
-    weaknesses: z.array(z.string()).optional(),
-    mainboard: z.array(cardLineSchema),
-    sideboard: z.array(cardLineSchema),
-    strategy: z.string(),
-    warnings: z.array(z.string()).default([]),
-    format: z.enum(["standard", "modern", "commander"]),
-  }),
+  ...brewRequestFields,
+  deck: builtDeckBodySchema,
   cardName: z.string().min(1),
   zone: z.enum(["mainboard", "sideboard", "commander"]),
-  strategy: z.string().optional(),
-  colors: z.array(z.enum(["W", "U", "B", "R", "G"])).optional(),
-  budgetMax: z.number().positive().optional(),
-  ...brewPreferencesFields,
 });
 
 export const maxDuration = 90;
 
 export async function POST(request: Request) {
   try {
-    const json = await request.json();
-    const parsed = bodySchema.safeParse(json);
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Invalid request", details: parsed.error.flatten() },
-        { status: 400 },
-      );
-    }
+    const parsed = bodySchema.safeParse(await request.json());
+    if (!parsed.success) return badRequest("Invalid request", parsed.error.flatten());
 
     const {
       format,
@@ -75,42 +33,24 @@ export async function POST(request: Request) {
       strategy,
       colors,
       budgetMax,
-      ...prefBody
     } = parsed.data;
-    const brewPrefs = brewPreferencesFromBody(prefBody);
-    const playable = resolved.filter((r) => r.card) as ResolvedCollectionCard[];
+    const brewPrefs = brewPreferencesFromBody(parsed.data);
+    const playable = playableFrom(resolved);
     const previousDeck: BuiltDeck = { ...deck, warnings: deck.warnings ?? [] };
 
-    const { deck: swapped, validationErrors } = await swapCardWithAI(
-      format as FormatId,
-      playable,
+    const result = await swapCardWithAI({
+      format,
+      resolved: playable,
       previousDeck,
-      cardName,
+      cardToReplace: cardName,
       zone,
-      strategy,
-      colors,
-      budgetMax,
+      strategyHint: strategy,
+      colorPref: colors,
+      maxBudgetUsd: budgetMax,
       brewPrefs,
-    );
-
-    const validation = validateDeck(swapped, playable);
-
-    return NextResponse.json({
-      deck: swapped,
-      validation: {
-        valid: validation.valid,
-        errors: validation.errors,
-        warnings: validation.warnings,
-      },
-      validationErrors,
-      enriched: {
-        mainboard: validation.enrichedMainboard,
-        sideboard: validation.enrichedSideboard,
-        commander: validation.commanderCard,
-      },
     });
+    return deckResponse(result, playable, brewPrefs.allowIllegal);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Swap failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return serverError(err, "Swap failed");
   }
 }

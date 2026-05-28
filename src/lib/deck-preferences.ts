@@ -1,5 +1,11 @@
 import type { PowerLevelId } from "./power-levels";
 import { POWER_LEVELS } from "./power-levels";
+import {
+  COMBO_CARD_KEYS,
+  EXTRA_TURN_CARD_KEYS,
+  isExactCardName,
+  MLD_CARD_KEYS,
+} from "./house-rules-cards";
 import type { ScryfallCard } from "./types";
 import { getDisplayName, nameKey } from "./scryfall";
 
@@ -15,14 +21,23 @@ export const DEFAULT_HOUSE_RULES: HouseRules = {
   noExtraTurns: false,
 };
 
+export type InteractionDensity = "light" | "balanced" | "heavy";
+export type GameLength = "fast" | "balanced" | "grindy";
+
 export type DeckBuildPreferences = {
   powerLevel?: PowerLevelId;
   avoidCards?: string[];
+  /** Cards the user wants the deck to include if at all possible. */
+  mustIncludeCards?: string[];
   houseRules?: HouseRules;
   politicsFriendly?: boolean;
+  allowIllegal?: boolean;
+  interactionDensity?: InteractionDensity;
+  gameLength?: GameLength;
+  /** Target mainboard land count (e.g. 36 Commander, 24 aggro). */
+  landsTarget?: number;
 };
 
-/** Parse newline/comma-separated card names from the avoid-list text box. */
 export function parseAvoidList(text: string): string[] {
   const names = new Set<string>();
   for (const part of text.split(/[\n,]+/)) {
@@ -32,7 +47,6 @@ export function parseAvoidList(text: string): string[] {
   return [...names];
 }
 
-/** Build a set of nameKeys for hard post-processing (trim) enforcement. */
 export function buildAvoidNameKeys(
   avoidCards: string[],
   resolved?: Array<{ entry: { name: string }; card: ScryfallCard | null }>,
@@ -44,9 +58,8 @@ export function buildAvoidNameKeys(
   if (resolved) {
     for (const item of resolved) {
       if (!item.card) continue;
-      const display = getDisplayName(item.card);
       const entryKey = nameKey(item.entry.name);
-      const displayKey = nameKey(display);
+      const displayKey = nameKey(getDisplayName(item.card));
       if (keys.has(entryKey) || keys.has(displayKey)) {
         keys.add(entryKey);
         keys.add(displayKey);
@@ -61,52 +74,10 @@ export function isNameAvoided(name: string, avoidKeys: Set<string>): boolean {
   return avoidKeys.has(nameKey(name));
 }
 
-const MLD_NAME_FRAGMENTS = [
-  "armageddon",
-  "ravages of war",
-  "jokulhaups",
-  "obliterate",
-  "boom // bust",
-  "fall of the thran",
-  "wildfire",
-  "cleansing wildfire",
-];
-
-const COMBO_NAME_FRAGMENTS = [
-  "thassa's oracle",
-  "thassas oracle",
-  "demonic consultation",
-  "tainted pact",
-  "isochron scepter",
-  "dramatic reversal",
-  "heliod, sun-crowned",
-  "walking ballista",
-  "kiki-jiki",
-  "splinter twin",
-  "underworld breach",
-  "lion's eye diamond",
-  "ad nauseam",
-  "thoracle",
-];
-
-const EXTRA_TURN_NAME_FRAGMENTS = [
-  "time warp",
-  "temporal manipulation",
-  "capture of jingzhou",
-  "alrund's epiphany",
-  "expropriate",
-  "rise of the dark realms",
-];
-
 function oracleText(card: ScryfallCard): string {
   const main = card.oracle_text ?? "";
   const face = card.card_faces?.[0]?.oracle_text ?? "";
   return `${main} ${face}`.toLowerCase();
-}
-
-function nameMatchesFragments(name: string, fragments: string[]): boolean {
-  const n = nameKey(name);
-  return fragments.some((f) => n.includes(nameKey(f)));
 }
 
 export function cardViolatesHouseRules(
@@ -118,12 +89,9 @@ export function cardViolatesHouseRules(
 
   if (rules.noMassLandDestruction) {
     if (
-      nameMatchesFragments(name, MLD_NAME_FRAGMENTS) ||
+      isExactCardName(name, MLD_CARD_KEYS) ||
       /\bdestroy all lands\b/.test(text) ||
-      /\beach player sacrifices all lands\b/.test(text) ||
-      (/\bdestroy\b/.test(text) &&
-        /\bland\b/.test(text) &&
-        /\ball\b/.test(text))
+      /\beach player sacrifices all lands\b/.test(text)
     ) {
       return "mass land destruction";
     }
@@ -131,10 +99,9 @@ export function cardViolatesHouseRules(
 
   if (rules.noInfiniteCombos) {
     if (
-      nameMatchesFragments(name, COMBO_NAME_FRAGMENTS) ||
-      (/\binfinite\b/.test(text) &&
-        (/\bwin the game\b/.test(text) || /\bdamage\b/.test(text))) ||
-      /\byou win the game\b/.test(text)
+      isExactCardName(name, COMBO_CARD_KEYS) ||
+      /\byou win the game\b/.test(text) ||
+      (/\binfinite\b/.test(text) && /\bwin the game\b/.test(text))
     ) {
       return "infinite / game-winning combo piece";
     }
@@ -142,9 +109,9 @@ export function cardViolatesHouseRules(
 
   if (rules.noExtraTurns) {
     if (
-      nameMatchesFragments(name, EXTRA_TURN_NAME_FRAGMENTS) ||
-      /\bextra turn\b/.test(text) ||
-      /\btake an extra turn\b/.test(text)
+      isExactCardName(name, EXTRA_TURN_CARD_KEYS) ||
+      /\btake an extra turn\b/.test(text) ||
+      /\bextra turns?\b/.test(text)
     ) {
       return "extra turn effect";
     }
@@ -161,6 +128,16 @@ ${avoidCards.map((n) => `- ${n}`).join("\n")}
 If the deck would normally want one of these cards, pick a different card that fills the same role.`;
 }
 
+export function getMustIncludePromptBlock(
+  mustInclude: string[],
+): string | null {
+  if (!mustInclude.length) return null;
+  return `*** USER MUST-INCLUDE LIST — HARD CONSTRAINT ***
+The user explicitly requested these cards be in the deck. Include each one (mainboard or commander as appropriate) as long as it appears in the collection list below. Drop OTHER lower-impact cards from your draft to make room — do not skip these:
+${mustInclude.map((n) => `- ${n}`).join("\n")}
+If a card on this list is NOT in the collection, note it in the deck's "warnings" array and proceed without it. Do not invent or substitute it silently.`;
+}
+
 export function getHouseRulesPromptBlock(rules: HouseRules): string | null {
   const lines: string[] = [];
   if (rules.noMassLandDestruction) {
@@ -175,7 +152,7 @@ export function getHouseRulesPromptBlock(rules: HouseRules): string | null {
   }
   if (rules.noExtraTurns) {
     lines.push(
-      "- NO extra-turn engines (Time Warp, Alrund's Epiphany, Capture of Jingzhou, etc.) beyond at most ONE if absolutely central to a fair plan.",
+      "- NO extra-turn engines (Time Warp, Alrund's Epiphany, Capture of Jingzhou, etc.).",
     );
   }
   if (!lines.length) return null;
@@ -194,26 +171,77 @@ The user wants a deck that wins games without making enemies at the table:
 - Prefer group-hug, pillowfort, go-wide tokens, and "everyone draws / gets a Treasure" effects over solitaire combo turns.
 - Win through combat damage, incremental value, or a single flashy finisher after a long game — not turn-3 infinite loops.
 - Include 2-4 "political" cards (Smothering Tithe, Ghostly Prison, Propaganda, Homeward Path, Tempt with Discovery) if in the collection.
-- Avoid "I win, you lose" cards that target one player (Braids, Stax locks, Mind Twist on one player).
+- Avoid "I win, you lose" cards that target one player (hard stax locks, Mind Twist on one player).
 - If you include removal, prefer flexible answers over hard locks.
 - The deck should feel fair to sit across from at a local game store.`;
+}
+
+export function getAllowIllegalPromptBlock(allow: boolean): string | null {
+  if (!allow) return null;
+  return `*** ALLOW FORMAT-ILLEGAL CARDS ***
+The user allows cards from their collection even if Scryfall marks them not legal in this format (e.g. Sol Ring in Modern, banned cards in Commander).
+- You may include any card from the collection list regardless of format legality on Scryfall.
+- Still obey copy limits, color identity, deck size, and collection quantities.`;
+}
+
+export function getInteractionDensityPromptBlock(
+  density: InteractionDensity,
+): string | null {
+  const blocks: Record<InteractionDensity, string> = {
+    light: `*** INTERACTION DENSITY: LIGHT ***
+Aim for ~5-8 interaction slots total (removal, counters, wipes combined). Prioritize your game plan; assume the table handles problems.`,
+    balanced: `*** INTERACTION DENSITY: BALANCED ***
+Aim for ~10-14 interaction slots — spot removal, 1-2 board wipes, and a few flexible answers without becoming a control deck.`,
+    heavy: `*** INTERACTION DENSITY: HEAVY ***
+Aim for ~16-22 interaction slots — multiple removal spells, counterspells, and board wipes. You are the table's police; still need a win condition.`,
+  };
+  return blocks[density];
+}
+
+export function getGameLengthPromptBlock(length: GameLength): string | null {
+  const blocks: Record<GameLength, string> = {
+    fast: `*** GAME LENGTH: FAST ***
+Build for games that end turns 6-9: low curve (avg CMC ~2.2-2.8), fewer than 24 lands in 60-card / fewer than 35 in Commander unless ramp-heavy, aggressive threats and reach.`,
+    balanced: `*** GAME LENGTH: BALANCED ***
+Standard mana base: ~22-25 lands in 60-card, ~35-38 in Commander. Mix early plays with mid-game and 2-4 finishers.`,
+    grindy: `*** GAME LENGTH: GRINDY ***
+Build for long games: higher land count, card draw, recursion, and inevitability. Include 2-4 haymakers that close after a long game.`,
+  };
+  return blocks[length];
+}
+
+export function getLandsTargetPromptBlock(
+  format: string,
+  landsTarget: number,
+): string | null {
+  if (!landsTarget || landsTarget < 18 || landsTarget > 45) return null;
+  const totalCards = format === "commander" ? 99 : 60;
+  const spellSlots = totalCards - landsTarget;
+  return `*** USER OVERRIDE — LAND COUNT MUST BE EXACTLY ${landsTarget} ***
+This OVERRIDES the format default. The mainboard MUST include exactly ${landsTarget} lands (basic + nonbasic combined) and exactly ${spellSlots} non-land cards. If a power-level guideline or any earlier instruction suggests a different number, ignore it — the user's slider wins. Count lands explicitly before submitting.`;
 }
 
 export function buildPreferencesPromptBlock(
   format: string,
   prefs: DeckBuildPreferences,
 ): string {
-  const parts: string[] = [];
-  const avoid = getAvoidListPromptBlock(prefs.avoidCards ?? []);
-  if (avoid) parts.push(avoid);
-  const house = getHouseRulesPromptBlock(prefs.houseRules ?? DEFAULT_HOUSE_RULES);
-  if (house) parts.push(house);
-  const politics = getPoliticsFriendlyPromptBlock(format, !!prefs.politicsFriendly);
-  if (politics) parts.push(politics);
-  return parts.join("\n\n");
+  const blocks = [
+    getMustIncludePromptBlock(prefs.mustIncludeCards ?? []),
+    getAvoidListPromptBlock(prefs.avoidCards ?? []),
+    getHouseRulesPromptBlock(prefs.houseRules ?? DEFAULT_HOUSE_RULES),
+    getPoliticsFriendlyPromptBlock(format, !!prefs.politicsFriendly),
+    getAllowIllegalPromptBlock(!!prefs.allowIllegal),
+    prefs.interactionDensity
+      ? getInteractionDensityPromptBlock(prefs.interactionDensity)
+      : null,
+    prefs.gameLength ? getGameLengthPromptBlock(prefs.gameLength) : null,
+    prefs.landsTarget
+      ? getLandsTargetPromptBlock(format, prefs.landsTarget)
+      : null,
+  ].filter((b): b is string => Boolean(b));
+  return blocks.join("\n\n");
 }
 
-/** Map bracket target to approximate 1–10 score band for comparison with estimate. */
 export const TARGET_POWER_SCORE: Record<
   PowerLevelId,
   { min: number; max: number; label: string }
@@ -246,7 +274,7 @@ export function comparePowerToTarget(
 
   if (estimatedScore > band.max + 0.5) {
     status = "high";
-    message = `Deck reads hotter than ${meta.label} (${estimatedScore}/10 vs ~${band.max} max). You may stomp casual tables — consider Casual or Focused, or use the ban list.`;
+    message = `Deck reads hotter than ${meta.label} (${estimatedScore}/10 vs ~${band.max} max). You may stomp casual tables — try Casual/Focused or add cards to your ban list.`;
   } else if (estimatedScore < band.min - 0.5) {
     status = "low";
     message = `Deck reads softer than ${meta.label} (${estimatedScore}/10 vs ~${band.min}+ expected). Bump power level or strategy if you want more punch.`;
@@ -261,4 +289,16 @@ export function comparePowerToTarget(
     status,
     message,
   };
+}
+
+export function suggestPowerLevelAdjustment(
+  status: PowerTargetComparison["status"],
+  current: PowerLevelId,
+): PowerLevelId | null {
+  const order: PowerLevelId[] = ["casual", "focused", "optimized", "high"];
+  const idx = order.indexOf(current);
+  if (idx < 0) return null;
+  if (status === "high" && idx > 0) return order[idx - 1];
+  if (status === "low" && idx < order.length - 1) return order[idx + 1];
+  return null;
 }

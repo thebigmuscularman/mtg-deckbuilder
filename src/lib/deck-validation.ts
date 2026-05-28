@@ -1,7 +1,6 @@
 import type {
   BuiltDeck,
   DeckCardLine,
-  FormatId,
   ResolvedCollectionCard,
   ScryfallCard,
 } from "./types";
@@ -10,32 +9,70 @@ import {
   getFormat,
   isBasicLand,
 } from "./formats";
-import { getDisplayName } from "./scryfall";
+import { getDisplayName, nameKey } from "./scryfall";
+import { STUB_BASIC_LANDS } from "./basic-lands";
 
-type CardLookup = Map<string, ScryfallCard>;
-
-function normalizeName(name: string): string {
-  return name.trim().toLowerCase();
+export interface OwnedEntry {
+  qty: number;
+  card: ScryfallCard;
 }
 
-function buildLookup(resolved: ResolvedCollectionCard[]): CardLookup {
-  const map = new Map<string, ScryfallCard>();
-  for (const item of resolved) {
-    if (!item.card) continue;
-    map.set(normalizeName(item.entry.name), item.card);
-    map.set(normalizeName(getDisplayName(item.card)), item.card);
-  }
-  return map;
-}
+/** Quantity used for the 5 basic lands that aren't already in the
+ *  user's collection. Basics are free in real Magic, but collection
+ *  exports (Moxfield, Archidekt, etc.) often omit them — so without
+ *  this stub, the builder can't pad mana bases when the user's upload
+ *  had no basics. 999 ≫ any conceivable real-deck land count. */
+const VIRTUAL_BASIC_QTY = 999;
 
-function buildOwnedCounts(resolved: ResolvedCollectionCard[]): Map<string, number> {
-  const counts = new Map<string, number>();
+/**
+ * Single source of truth for "what does the user own and how many".
+ *
+ * Each unique card (keyed by its canonical display name) gets ONE
+ * shared `OwnedEntry` whose `qty` sums every printing the user has.
+ * That entry is then indexed under:
+ *   - the canonical display name (always), AND
+ *   - every collection-entry name the user typed for it (aliases),
+ *
+ * so anywhere downstream can resolve an AI's reference regardless of
+ * which spelling it echoes back. The same `{ qty, card }` object is
+ * shared across all keys for a given card, so quantities never drift.
+ *
+ * Finally, any of the 5 basic lands the user *didn't* upload are
+ * injected as virtual entries (see VIRTUAL_BASIC_QTY).
+ */
+export function buildOwnedIndex(
+  resolved: ResolvedCollectionCard[],
+): Map<string, OwnedEntry> {
+  const byDisplay = new Map<string, OwnedEntry>();
+  const index = new Map<string, OwnedEntry>();
+
   for (const item of resolved) {
     if (!item.card) continue;
-    const key = normalizeName(getDisplayName(item.card));
-    counts.set(key, (counts.get(key) ?? 0) + item.entry.quantity);
+    const displayKey = nameKey(getDisplayName(item.card));
+    let entry = byDisplay.get(displayKey);
+    if (!entry) {
+      entry = { qty: 0, card: item.card };
+      byDisplay.set(displayKey, entry);
+      index.set(displayKey, entry);
+    }
+    entry.qty += item.entry.quantity;
+    const entryAlias = nameKey(item.entry.name);
+    // Don't let an alias clobber another card's display-name key.
+    if (!index.has(entryAlias)) {
+      index.set(entryAlias, entry);
+    }
   }
-  return counts;
+
+  for (const card of STUB_BASIC_LANDS) {
+    const key = nameKey(card.name);
+    if (!byDisplay.has(key)) {
+      const entry: OwnedEntry = { qty: VIRTUAL_BASIC_QTY, card };
+      byDisplay.set(key, entry);
+      index.set(key, entry);
+    }
+  }
+
+  return index;
 }
 
 function countCards(lines: DeckCardLine[]): number {
@@ -44,14 +81,16 @@ function countCards(lines: DeckCardLine[]): number {
 
 function resolveLine(
   line: DeckCardLine,
-  lookup: CardLookup,
-): { card: ScryfallCard | null; name: string } {
-  const card =
-    lookup.get(normalizeName(line.name)) ??
-    (line.scryfallId
-      ? [...lookup.values()].find((c) => c.id === line.scryfallId) ?? null
-      : null);
-  return { card, name: line.name };
+  owned: Map<string, OwnedEntry>,
+): { card: ScryfallCard | null } {
+  const direct = owned.get(nameKey(line.name));
+  if (direct) return { card: direct.card };
+  if (line.scryfallId) {
+    for (const entry of owned.values()) {
+      if (entry.card.id === line.scryfallId) return { card: entry.card };
+    }
+  }
+  return { card: null };
 }
 
 export interface ValidationResult {
@@ -63,34 +102,34 @@ export interface ValidationResult {
   commanderCard: ScryfallCard | null;
 }
 
+export type ValidateDeckOptions = {
+  allowIllegal?: boolean;
+};
+
 export function validateDeck(
   deck: BuiltDeck,
   resolved: ResolvedCollectionCard[],
+  options?: ValidateDeckOptions,
 ): ValidationResult {
+  const allowIllegal = options?.allowIllegal ?? false;
   const format = getFormat(deck.format);
-  const lookup = buildLookup(resolved);
-  const owned = buildOwnedCounts(resolved);
+  const owned = buildOwnedIndex(resolved);
   const errors: string[] = [];
   const warnings: string[] = [];
 
   const enrichedMainboard = deck.mainboard.map((line) => {
-    const { card } = resolveLine(line, lookup);
+    const { card } = resolveLine(line, owned);
     return { ...line, card };
   });
 
   const enrichedSideboard = deck.sideboard.map((line) => {
-    const { card } = resolveLine(line, lookup);
+    const { card } = resolveLine(line, owned);
     return { ...line, card };
   });
 
   let commanderCard: ScryfallCard | null = null;
   if (deck.commander) {
-    commanderCard =
-      lookup.get(normalizeName(deck.commander)) ??
-      [...lookup.values()].find(
-        (c) => normalizeName(getDisplayName(c)) === normalizeName(deck.commander!),
-      ) ??
-      null;
+    commanderCard = owned.get(nameKey(deck.commander))?.card ?? null;
     if (!commanderCard) {
       errors.push(`Commander not found in collection: ${deck.commander}`);
     }
@@ -106,16 +145,18 @@ export function validateDeck(
     zone: "mainboard" | "sideboard",
   ) => {
     for (const line of lines) {
-      const nameKey = normalizeName(line.name);
-      const ownedQty = owned.get(nameKey) ?? 0;
-
       if (!line.card) {
         errors.push(`${zone}: unknown card "${line.name}"`);
         continue;
       }
 
       const displayName = getDisplayName(line.card);
-      const displayKey = normalizeName(displayName);
+      const displayKey = nameKey(displayName);
+      // Owned-quantity must be keyed off the resolved card's display name,
+      // not the AI's spelling — otherwise a DFC back-face reference or any
+      // entry-name match would look like "0 owned" even though we resolved
+      // the same card.
+      const ownedQty = owned.get(displayKey)?.qty ?? 0;
 
       if (ownedQty < line.quantity) {
         errors.push(
@@ -123,13 +164,19 @@ export function validateDeck(
         );
       }
 
-      const legality =
-        line.card.legalities[format.scryfallLegalityKey] ?? "not_legal";
-      if (legality === "banned" || legality === "not_legal") {
-        errors.push(`${displayName} is not legal in ${format.label}`);
-      }
-      if (legality === "restricted" && line.quantity > 1) {
-        errors.push(`${displayName} is restricted to 1 copy`);
+      if (!allowIllegal) {
+        const legality =
+          line.card.legalities[format.scryfallLegalityKey] ?? "not_legal";
+        if (legality === "banned" || legality === "not_legal") {
+          errors.push(`${displayName} is not legal in ${format.label}`);
+        }
+
+        if (deck.format === "pauper" && line.card.rarity !== "common") {
+          errors.push(`${displayName} is not common — illegal in Pauper`);
+        }
+        if (legality === "restricted" && line.quantity > 1) {
+          errors.push(`${displayName} is restricted to 1 copy`);
+        }
       }
 
       const maxCopies = format.maxCopies(line.card);

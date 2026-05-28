@@ -16,15 +16,19 @@ const PIP_MS: Record<string, string> = {
 export function DeckStatsPanel({
   stats,
   landWarnings,
-  powerEstimate,
+  powerLevel,
   powerComparison,
+  onRebuildForPower,
+  rebuilding,
   deckValueUsd,
   colorIdentity,
 }: {
   stats: DeckStats;
   landWarnings: string[];
-  powerEstimate: PowerLevelResult;
-  powerComparison: PowerTargetComparison | null;
+  powerLevel: PowerLevelResult | null;
+  powerComparison?: PowerTargetComparison | null;
+  onRebuildForPower?: () => void;
+  rebuilding?: boolean;
   deckValueUsd: number;
   colorIdentity?: string[];
 }) {
@@ -103,37 +107,60 @@ export function DeckStatsPanel({
         </div>
       )}
 
-      <div className="rounded-xl border border-purple-800/40 bg-purple-950/30 p-3">
-        <p className="text-xs font-bold uppercase tracking-wider text-purple-300">
-          Power estimate
-        </p>
-        <p className="mt-1 text-lg font-black text-purple-100">
-          {powerEstimate.score}/10 — {powerEstimate.label}
-        </p>
-        {powerEstimate.factors.length > 0 && (
-          <ul className="mt-2 list-inside list-disc text-xs text-purple-200/80">
-            {powerEstimate.factors.map((f) => (
-              <li key={f}>{f}</li>
-            ))}
-          </ul>
-        )}
-        {powerComparison && (
-          <div
-            className={`mt-3 rounded-lg border px-3 py-2 text-xs leading-relaxed ${
+      {powerLevel && (
+        <div className="rounded-xl border border-purple-800/40 bg-purple-950/30 p-3">
+          <p className="text-xs font-bold uppercase tracking-wider text-purple-300">
+            Power estimate
+          </p>
+          <p className="mt-1 text-lg font-black text-purple-100">
+            {powerLevel.score}/10 — {powerLevel.label}
+          </p>
+          {powerLevel.factors.length > 0 && (
+            <ul className="mt-2 list-inside list-disc text-xs text-purple-200/80">
+              {powerLevel.factors.map((f) => (
+                <li key={f}>{f}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {powerComparison && (
+        <div
+          className={`rounded-xl border p-3 ${
+            powerComparison.status === "match"
+              ? "border-emerald-800/40 bg-emerald-950/30"
+              : powerComparison.status === "high"
+                ? "border-amber-800/40 bg-amber-950/30"
+                : "border-sky-800/40 bg-sky-950/30"
+          }`}
+        >
+          <p
+            className={`text-xs font-bold uppercase tracking-wider ${
               powerComparison.status === "match"
-                ? "border-emerald-800/50 bg-emerald-950/40 text-emerald-200"
+                ? "text-emerald-300"
                 : powerComparison.status === "high"
-                  ? "border-amber-700/50 bg-amber-950/40 text-amber-100"
-                  : "border-sky-800/50 bg-sky-950/40 text-sky-100"
+                  ? "text-amber-300"
+                  : "text-sky-300"
             }`}
           >
-            <p className="font-semibold">
-              Target: {powerComparison.targetLabel} ({powerComparison.targetBracket})
-            </p>
-            <p className="mt-1 opacity-90">{powerComparison.message}</p>
-          </div>
-        )}
-      </div>
+            Target: {powerComparison.targetLabel} ({powerComparison.targetBracket})
+          </p>
+          <p className="mt-1 text-sm leading-relaxed text-stone-200/95">
+            {powerComparison.message}
+          </p>
+          {powerComparison.status !== "match" && onRebuildForPower && (
+            <button
+              type="button"
+              disabled={rebuilding}
+              onClick={onRebuildForPower}
+              className="mt-3 w-full rounded-lg bg-amber-600 px-3 py-2 text-sm font-bold text-stone-950 disabled:opacity-50"
+            >
+              {rebuilding ? "Rebuilding…" : "Rebuild toward target power"}
+            </button>
+          )}
+        </div>
+      )}
 
       {landWarnings.length > 0 && (
         <ul className="space-y-1 text-xs text-amber-200/90">
