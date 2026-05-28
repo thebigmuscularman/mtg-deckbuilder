@@ -1,7 +1,14 @@
 import OpenAI from "openai";
 import { validateDeck } from "../deck-validation";
 import type { BuiltDeck } from "../types";
-import { deckSchema } from "./deck-schema";
+import { deckPlanSchema, deckSchema, type DeckPlan } from "./deck-schema";
+import {
+  buildExecutionUserMessage,
+  planSystemPrompt,
+  planUserPrompt,
+} from "./prompts";
+import { buildCollectionContext } from "./collection-prompt";
+import { sortWubrg } from "./color-utils";
 import { trimDeckToCollection } from "./trim";
 import type { BrewArgs, DeckResult } from "./types";
 
@@ -49,6 +56,62 @@ async function getRawCompletion(
   return raw;
 }
 
+async function generatePlan(
+  client: OpenAI,
+  args: BrewArgs,
+): Promise<DeckPlan> {
+  const prefColors = sortWubrg(
+    (args.colorPref ?? []).filter((c) => "WUBRG".includes(c)),
+  );
+  const collectionContext = buildCollectionContext(
+    args.resolved,
+    args.format,
+    prefColors,
+  );
+  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    { role: "system", content: planSystemPrompt(args.format) },
+    {
+      role: "user",
+      content: planUserPrompt(
+        args.format,
+        collectionContext,
+        prefColors,
+        args.strategyHint,
+      ),
+    },
+  ];
+
+  args.onProgress?.({
+    type: "status",
+    message: "Planning the deck — picking commander, archetype, and key cards…",
+  });
+
+  const completion = await client.chat.completions.create({
+    model: MODEL(),
+    temperature: 0.5,
+    response_format: { type: "json_object" },
+    messages,
+  });
+  const raw = completion.choices[0]?.message?.content;
+  if (!raw) throw new Error("Planner returned an empty response");
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("Planner returned invalid JSON");
+  }
+  const plan = deckPlanSchema.safeParse(parsed);
+  if (!plan.success) {
+    throw new Error(
+      `Planner output failed validation: ${plan.error.issues
+        .map((i) => `${i.path.join(".") || "plan"}: ${i.message}`)
+        .join("; ")}`,
+    );
+  }
+  return plan.data;
+}
+
 function applyTrim(
   raw: ReturnType<typeof deckSchema.parse>,
   args: BrewArgs,
@@ -67,18 +130,44 @@ function applyTrim(
   );
 }
 
+/**
+ * `extraMessages` lets refine/shore-up callers append their previous-deck
+ * context AFTER the plan-driven build messages. When supplied, we skip the
+ * planning step — those flows already operate on an existing deck.
+ */
 export async function runDeckGeneration(
   args: BrewArgs,
   baseMessages: OpenAI.Chat.ChatCompletionMessageParam[],
   maxAttempts: number,
+  extraMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [],
 ): Promise<DeckResult> {
   const { onProgress, brewPrefs, resolved } = args;
   const client = new OpenAI({ apiKey: requireOpenAIKey() });
   let lastErrors: string[] = [];
   let lastTrimmedDeck: BuiltDeck | null = null;
 
+  // Stage 1: commit to a strategic plan in a separate call. Skip for refine /
+  // shore-up flows — they're already anchored to an existing deck.
+  let planMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
+  if (extraMessages.length === 0) {
+    const plan = await generatePlan(client, args);
+    const planJson = JSON.stringify(plan, null, 2);
+    onProgress?.({
+      type: "status",
+      message: `Plan: ${plan.archetype}${plan.commander ? ` — ${plan.commander}` : ""}. Building the list…`,
+    });
+    planMessages = [
+      { role: "assistant", content: planJson },
+      { role: "user", content: buildExecutionUserMessage(planJson) },
+    ];
+  }
+
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [...baseMessages];
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+      ...baseMessages,
+      ...planMessages,
+      ...extraMessages,
+    ];
     if (attempt > 0 && lastErrors.length) {
       messages.push({
         role: "user",
@@ -91,7 +180,7 @@ export async function runDeckGeneration(
       type: "status",
       message:
         attempt === 0
-          ? "Reading your collection and drafting a deck list…"
+          ? "Building the deck list against the plan…"
           : `Fixing ${lastErrors.length} validation issue${lastErrors.length === 1 ? "" : "s"}…`,
     });
 

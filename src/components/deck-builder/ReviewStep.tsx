@@ -119,12 +119,12 @@ export function ReviewStep({
         <SectionLabel>
           Strategy <span className="text-stone-600">(optional)</span>
         </SectionLabel>
-        <input
-          type="text"
+        <textarea
           value={prefs.strategy}
           onChange={(e) => prefs.setStrategy(e.target.value)}
-          placeholder="e.g. tokens, reanimator, burn…"
-          className="mb-4 w-full rounded-xl border border-stone-700/60 bg-stone-950/60 px-4 py-3 text-stone-100 placeholder:text-stone-600 focus:border-amber-500 focus:outline-none"
+          placeholder="Describe the deck in your own words — what should it do, who's it for, any pet themes or flavor goals. e.g. 'I want a Yuriko ninja deck that ramps into big top-of-library cheats, focused on the LGS Tuesday tables — not too oppressive'."
+          rows={4}
+          className="mb-4 w-full resize-y rounded-xl border border-stone-700/60 bg-stone-950/60 px-4 py-3 text-sm text-stone-100 placeholder:text-stone-600 focus:border-amber-500 focus:outline-none"
         />
 
         <PowerLevelSection

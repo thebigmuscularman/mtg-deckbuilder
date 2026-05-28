@@ -61,8 +61,7 @@ export function shoreUpDeckWithAI(
   const weaknessList = args.weaknesses
     .map((w, i) => `${i + 1}. ${w}`)
     .join("\n");
-  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    ...baseMessages(args),
+  const extraMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "assistant", content: serializePreviousDeck(args.previousDeck) },
     {
       role: "user",
@@ -80,14 +79,13 @@ Hard constraints:
 - Return the FULL deck JSON, not a diff.`,
     },
   ];
-  return runDeckGeneration(args, messages, 3);
+  return runDeckGeneration(args, baseMessages(args), 3, extraMessages);
 }
 
 export function refineDeckWithAI(
   args: BrewArgs & { previousDeck: BuiltDeck; errors: string[] },
 ): Promise<DeckResult> {
-  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    ...baseMessages(args),
+  const extraMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "assistant", content: serializePreviousDeck(args.previousDeck) },
     {
       role: "user",
@@ -98,7 +96,7 @@ export function refineDeckWithAI(
         )}\n\nKeep the same overall game plan and as many of the existing card choices as possible. Only change what is necessary to satisfy the rules and quantities.`,
     },
   ];
-  return runDeckGeneration(args, messages, 4);
+  return runDeckGeneration(args, baseMessages(args), 4, extraMessages);
 }
 
 export async function swapCardWithAI(

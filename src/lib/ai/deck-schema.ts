@@ -49,3 +49,31 @@ export const swapResponseSchema = z.object({
     }),
   ),
 });
+
+export const roleCountsSchema = z.object({
+  lands: z.number().int().nonnegative(),
+  ramp: z.number().int().nonnegative(),
+  removal: z.number().int().nonnegative(),
+  cardDraw: z.number().int().nonnegative(),
+  threats: z.number().int().nonnegative(),
+  payoffs: z.number().int().nonnegative(),
+  utility: z.number().int().nonnegative(),
+});
+
+/**
+ * Strategic plan produced by stage 1. The AI commits to these decisions in
+ * writing before stage 2 fills out the 99-card list, so individual card picks
+ * have to serve a stated plan rather than emerging by vibes.
+ */
+export const deckPlanSchema = z.object({
+  commander: z.union([z.string(), z.null()]),
+  commanderRationale: aiOptionalString,
+  archetype: aiRequiredString,
+  archetypeTagline: aiRequiredString,
+  winConditions: z.array(aiRequiredString).min(1).max(4),
+  keyCards: z.array(aiRequiredString).min(3).max(20),
+  roleCounts: roleCountsSchema,
+  buildNotes: aiOptionalString,
+});
+
+export type DeckPlan = z.infer<typeof deckPlanSchema>;
