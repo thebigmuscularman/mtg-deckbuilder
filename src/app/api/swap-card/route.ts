@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { refineDeckWithAI } from "@/lib/ai/flows";
+import { swapCardWithAI } from "@/lib/ai/flows";
 import { brewPreferencesFromBody } from "@/lib/api-brew-body";
 import { brewRequestFields, builtDeckBodySchema } from "@/lib/api-schemas";
 import {
@@ -13,29 +13,37 @@ import type { BuiltDeck } from "@/lib/types";
 const bodySchema = z.object({
   ...brewRequestFields,
   deck: builtDeckBodySchema,
-  errors: z.array(z.string()),
+  cardName: z.string().min(1),
+  zone: z.enum(["mainboard", "sideboard", "commander"]),
 });
 
-export const maxDuration = 120;
+export const maxDuration = 90;
 
 export async function POST(request: Request) {
   try {
     const parsed = bodySchema.safeParse(await request.json());
     if (!parsed.success) return badRequest("Invalid request", parsed.error.flatten());
 
-    const { format, resolved, deck, errors, strategy, colors, budgetMax } =
-      parsed.data;
-    if (!errors.length) return badRequest("No errors provided to fix.");
-
+    const {
+      format,
+      resolved,
+      deck,
+      cardName,
+      zone,
+      strategy,
+      colors,
+      budgetMax,
+    } = parsed.data;
     const brewPrefs = brewPreferencesFromBody(parsed.data);
     const playable = playableFrom(resolved);
     const previousDeck: BuiltDeck = { ...deck, warnings: deck.warnings ?? [] };
 
-    const result = await refineDeckWithAI({
+    const result = await swapCardWithAI({
       format,
       resolved: playable,
       previousDeck,
-      errors,
+      cardToReplace: cardName,
+      zone,
       strategyHint: strategy,
       colorPref: colors,
       maxBudgetUsd: budgetMax,
@@ -43,6 +51,6 @@ export async function POST(request: Request) {
     });
     return deckResponse(result, playable, brewPrefs.allowIllegal);
   } catch (err) {
-    return serverError(err, "Refine failed");
+    return serverError(err, "Swap failed");
   }
 }

@@ -1,74 +1,41 @@
-import { NextResponse } from "next/server";
 import { z } from "zod";
-import { buildDeckWithAI } from "@/lib/ai-deckbuilder";
-import { validateDeck } from "@/lib/deck-validation";
-import type { FormatId, ResolvedCollectionCard } from "@/lib/types";
+import { buildDeckWithAI } from "@/lib/ai/flows";
+import { brewPreferencesFromBody } from "@/lib/api-brew-body";
+import { brewRequestFields } from "@/lib/api-schemas";
+import {
+  badRequest,
+  deckResponse,
+  playableFrom,
+  serverError,
+} from "@/lib/api-route-helpers";
 
-const bodySchema = z.object({
-  format: z.enum(["standard", "modern", "commander"]),
-  resolved: z.array(
-    z.object({
-      entry: z.object({
-        name: z.string(),
-        quantity: z.number(),
-        set: z.string().optional(),
-        collectorNumber: z.string().optional(),
-      }),
-      card: z.any().nullable(),
-      error: z.string().optional(),
-    }),
-  ),
-  strategy: z.string().optional(),
-});
+const bodySchema = z.object(brewRequestFields);
 
 export const maxDuration = 120;
 
 export async function POST(request: Request) {
   try {
-    const json = await request.json();
-    const parsed = bodySchema.safeParse(json);
+    const parsed = bodySchema.safeParse(await request.json());
+    if (!parsed.success) return badRequest("Invalid request", parsed.error.flatten());
 
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Invalid request", details: parsed.error.flatten() },
-        { status: 400 },
-      );
-    }
-
-    const { format, resolved, strategy } = parsed.data;
-    const playable = resolved.filter((r) => r.card) as ResolvedCollectionCard[];
+    const { format, resolved, strategy, colors, budgetMax } = parsed.data;
+    const brewPrefs = brewPreferencesFromBody(parsed.data);
+    const playable = playableFrom(resolved);
 
     if (playable.length < 10) {
-      return NextResponse.json(
-        { error: "Need at least 10 resolved cards to build a deck." },
-        { status: 400 },
-      );
+      return badRequest("Need at least 10 resolved cards to build a deck.");
     }
 
-    const { deck, validationErrors } = await buildDeckWithAI(
-      format as FormatId,
-      playable,
-      strategy,
-    );
-
-    const validation = validateDeck(deck, playable);
-
-    return NextResponse.json({
-      deck,
-      validation: {
-        valid: validation.valid,
-        errors: validation.errors,
-        warnings: validation.warnings,
-      },
-      validationErrors,
-      enriched: {
-        mainboard: validation.enrichedMainboard,
-        sideboard: validation.enrichedSideboard,
-        commander: validation.commanderCard,
-      },
+    const result = await buildDeckWithAI({
+      format,
+      resolved: playable,
+      strategyHint: strategy,
+      colorPref: colors,
+      maxBudgetUsd: budgetMax,
+      brewPrefs,
     });
+    return deckResponse(result, playable, brewPrefs.allowIllegal);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Deck build failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return serverError(err, "Deck build failed");
   }
 }

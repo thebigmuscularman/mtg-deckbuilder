@@ -1,4 +1,9 @@
-export type FormatId = "standard" | "modern" | "commander";
+export type FormatId =
+  | "standard"
+  | "modern"
+  | "pioneer"
+  | "pauper"
+  | "commander";
 
 export type LegalityStatus =
   | "legal"
@@ -47,6 +52,11 @@ export interface ScryfallCard {
   power?: string;
   toughness?: string;
   layout: string;
+  prices?: {
+    usd?: string | null;
+    usd_foil?: string | null;
+    eur?: string | null;
+  };
 }
 
 export interface ResolvedCollectionCard {
@@ -68,6 +78,11 @@ export interface BuiltDeck {
   format: FormatId;
   commander: string | null;
   commanderReason?: string;
+  archetype?: string;
+  overview?: string;
+  winConditions?: string[];
+  strengths?: string[];
+  weaknesses?: string[];
   mainboard: DeckCardLine[];
   sideboard: DeckCardLine[];
   strategy: string;

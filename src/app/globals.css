@@ -1,14 +1,30 @@
 @import "tailwindcss";
 
-:root {
+:root,
+html.dark {
   --background: #0a0807;
   --foreground: #fafaf9;
+  --panel-from: rgba(28, 25, 23, 0.85);
+  --panel-to: rgba(15, 12, 10, 0.85);
+  --panel-border: rgba(245, 158, 11, 0.18);
+  --muted: #a8a29e;
   --accent: #f59e0b;
   --accent-soft: #fbbf24;
   --magic-blue: #38bdf8;
   --magic-red: #f87171;
   --magic-green: #4ade80;
   --magic-purple: #a78bfa;
+}
+
+html.light {
+  --background: #f5f0e8;
+  --foreground: #1c1917;
+  --panel-from: rgba(255, 255, 255, 0.92);
+  --panel-to: rgba(250, 245, 235, 0.92);
+  --panel-border: rgba(180, 120, 40, 0.25);
+  --muted: #57534e;
+  --accent: #b45309;
+  --accent-soft: #d97706;
 }
 
 @theme inline {
@@ -96,17 +112,30 @@ body {
 }
 
 .glass-panel {
-  background: linear-gradient(
-    135deg,
-    rgba(28, 25, 23, 0.85) 0%,
-    rgba(15, 12, 10, 0.85) 100%
-  );
+  background: linear-gradient(135deg, var(--panel-from) 0%, var(--panel-to) 100%);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(245, 158, 11, 0.18);
+  border: 1px solid var(--panel-border);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.04) inset,
-    0 20px 50px -20px rgba(0, 0, 0, 0.6);
+    0 20px 50px -20px rgba(0, 0, 0, 0.15);
+}
+
+html.light .glass-panel {
+  box-shadow: 0 8px 30px -12px rgba(120, 80, 20, 0.2);
+}
+
+html.light .text-stone-400,
+html.light .text-stone-500,
+html.light .text-stone-600 {
+  color: var(--muted);
+}
+
+html.light .text-amber-50,
+html.light .text-stone-100,
+html.light .text-stone-200,
+html.light .text-stone-300 {
+  color: var(--foreground);
 }
 
 .card-hover {
