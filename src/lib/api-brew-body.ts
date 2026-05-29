@@ -25,6 +25,7 @@ export const brewPreferencesFields = {
   interactionDensity: z.enum(["light", "balanced", "heavy"]).optional(),
   gameLength: z.enum(["fast", "balanced", "grindy"]).optional(),
   landsTarget: z.number().int().min(18).max(45).optional(),
+  chosenCommander: z.string().min(1).max(200).optional(),
 };
 
 export function brewPreferencesFromBody(body: {
@@ -37,6 +38,7 @@ export function brewPreferencesFromBody(body: {
   interactionDensity?: InteractionDensity;
   gameLength?: GameLength;
   landsTarget?: number;
+  chosenCommander?: string;
 }): DeckBuildPreferences {
   const rules = body.houseRules ?? {};
   return {
@@ -57,5 +59,6 @@ export function brewPreferencesFromBody(body: {
     interactionDensity: body.interactionDensity,
     gameLength: body.gameLength,
     landsTarget: body.landsTarget,
+    chosenCommander: body.chosenCommander?.trim() || undefined,
   };
 }

@@ -12,10 +12,21 @@ import { formatColorIdentity, sortWubrg } from "./color-utils";
  * plan in a separate call, so card picks are forced to serve a stated strategy
  * instead of being chosen by vibes.
  */
-export function planSystemPrompt(format: FormatId): string {
+export function planSystemPrompt(
+  format: FormatId,
+  chosenCommander?: string,
+): string {
+  const lockedCommander =
+    format === "commander" && chosenCommander?.trim()
+      ? chosenCommander.trim()
+      : null;
   const commanderClause =
     format === "commander"
-      ? `
+      ? lockedCommander
+        ? `
+- The commander is FIXED by the user: "${lockedCommander}". Set "commander" to exactly that string. Do NOT pick a different commander.
+- The deck's color identity is locked to ${lockedCommander}'s color identity. Build the plan, key cards, and archetype AROUND this commander; choose synergies that reward what ${lockedCommander} does.`
+        : `
 - You MUST pick a legendary creature from the collection as the commander. Its color identity defines the deck's color identity.
 - Pick the commander whose color identity gives you the deepest, most synergistic card pool — read the oracle text of candidates AND the cards in their color identity.`
       : `
@@ -31,7 +42,7 @@ Your plan must be specific, opinionated, and rooted in the actual collection. Re
 
 Output JSON only matching this schema:
 {
-  "commander": "Card Name (must be in the collection) or null",
+  "commander": ${lockedCommander ? `"${lockedCommander}" (fixed)` : `"Card Name (must be in the collection) or null"`},
   "commanderRationale": "1-2 sentences: why this commander given the available cards",
   "archetype": "Aggro | Midrange | Control | Combo | Tempo | Tribal | Ramp | Voltron | Tokens | Stax | Reanimator | Group Hug | etc.",
   "archetypeTagline": "1 sentence describing what the deck DOES",
@@ -72,6 +83,7 @@ export function planUserPrompt(
   collectionContext: string,
   prefColors: string[],
   brief?: string,
+  chosenCommander?: string,
 ): string {
   const colorLine = prefColors.length
     ? `User color preference: ${prefColors.join("")} (every card's color identity must be a subset).`
@@ -79,7 +91,11 @@ export function planUserPrompt(
   const briefLine = brief?.trim()
     ? `\n\nUSER BRIEF (honor this above generic best-of advice):\n"${brief.trim()}"`
     : "";
-  return `Format: ${format}. ${colorLine}${briefLine}
+  const commanderLine =
+    format === "commander" && chosenCommander?.trim()
+      ? `\n\nUSER-CHOSEN COMMANDER (fixed — do not change): "${chosenCommander.trim()}". Build the plan around this card; its color identity defines the deck's identity.`
+      : "";
+  return `Format: ${format}. ${colorLine}${commanderLine}${briefLine}
 
 COLLECTION (each card shows mana cost, type, P/T, keywords, condensed oracle text). Read the oracle text — these are the only cards you may key off:
 
@@ -88,21 +104,33 @@ ${collectionContext}
 Now produce the strategic plan as JSON.`;
 }
 
-export function buildExecutionUserMessage(plan: string): string {
+export function buildExecutionUserMessage(
+  plan: string,
+  format: FormatId,
+): string {
+  const mainSize = format === "commander" ? 99 : 60;
+  const commanderNote =
+    format === "commander"
+      ? " (the commander itself is a SEPARATE field — do not include it in the 99)"
+      : "";
   return `Now execute STEP 2: build the full deck list that matches the plan you just produced.
 
 LOCKED-IN PLAN (this is your previous output — do not change it, build to it):
 ${plan}
 
+*** HARD SIZE REQUIREMENT — NON-NEGOTIABLE ***
+The "mainboard" array MUST sum to EXACTLY ${mainSize} cards${commanderNote}.
+Before you finish writing JSON, ADD UP every "quantity" in your mainboard array. If the total is not ${mainSize}, you MUST add or remove cards until it is. A deck that misses this count will be rejected and you will be asked to redo it.
+
 EXECUTION RULES:
-- Mainboard count MUST equal the format's exact size (Commander = 99, 60-card = 60).
+- Mainboard quantity sum = ${mainSize}. Count it. If it's not ${mainSize}, fix it before responding.
 - The commander above is fixed (Commander format only).
 - EVERY card in keyCards MUST appear in your mainboard. They are the anchors.
-- The mainboard role split should match roleCounts (lands, ramp, removal, cardDraw, threats, payoffs, utility — sum equals the mainboard size).
+- The mainboard role split should match roleCounts (lands, ramp, removal, cardDraw, threats, payoffs, utility — sum equals ${mainSize}).
 - Pick the MOST EFFICIENT card from the collection for each role slot. Use the oracle text and cmc data to compare candidates.
 - For each card you include, write a one-sentence "reason" (8-20 words) tying that card to the plan — its role and how it serves the win conditions or counters opponents. NOT generic.
 
-Output JSON matching the full deck schema you've already been given. Do not output the plan again — it's locked in. Just the deck JSON.`;
+Output JSON matching the full deck schema you've already been given. Do not output the plan again — it's locked in. Just the deck JSON, with mainboard summing to EXACTLY ${mainSize}.`;
 }
 
 export function systemPrompt(
@@ -126,6 +154,7 @@ ABSOLUTE RULES — violating any of these will cause the deck to be auto-trimmed
 - Never invent, hallucinate, or guess at cards. If a card you want isn't listed, don't include it.
 - The sum of all mainboard quantities MUST equal the exact mainboard size for the format. Count carefully before responding. Do not overshoot or undershoot by even one card.
 - For Commander, the mainboard is EXACTLY 99 cards (the commander is separate). For Standard/Modern, the mainboard is EXACTLY 60 cards.${singletonReminder}
+- Before you finish writing JSON, ADD UP every "quantity" in your mainboard array. If the total is not the format's exact size, FIX IT — add or remove cards yourself. Returning a short list is a failure; trim will not fill your slots for you.
 
 ${formatRulesPrompt(format, landsTargetOverride)}
 
@@ -172,13 +201,22 @@ export function buildBaseUserMessage(
   const collectionContext = buildCollectionContext(resolved, format, prefColors);
   const unresolved = resolved.filter((r) => !r.card).map((r) => r.entry.name);
 
+  const chosenCommander =
+    format === "commander" && brewPrefs?.chosenCommander?.trim()
+      ? brewPrefs.chosenCommander.trim()
+      : null;
+
+  const commanderStep1 = chosenCommander
+    ? `STEP 1: COMMANDER IS LOCKED. The user has chosen "${chosenCommander}" as the commander. Set the "commander" field to exactly that string and build the entire deck around it. Do NOT pick a different commander.`
+    : `STEP 1: PICK THE COMMANDER FIRST. Pick a legendary creature whose color identity gives you the deepest, most cohesive card pool from the inventory below.`;
+
   const limitNote =
     format === "commander"
       ? `Each non-basic card below shows as 1x — that is the SINGLETON limit for Commander. Use AT MOST 1 copy of each. Only basic lands may repeat.
 
 Each card lists its color identity in brackets, e.g. (Creature [UB]) means Blue+Black. Colorless cards show [C].
 
-STEP 1: PICK THE COMMANDER FIRST. Pick a legendary creature whose color identity gives you the deepest, most cohesive card pool from the inventory below.
+${commanderStep1}
 
 STEP 2: USE EVERY COLOR IN THE COMMANDER'S IDENTITY. If the commander is 2-color (e.g. [GW]) the deck MUST meaningfully use BOTH Green and White cards — not just one. If it's 3-color, use all three. A multicolor commander piloting a mono-color deck is a FAILED build.
 
@@ -190,7 +228,16 @@ COLOR INVENTORY (unique cards you own by color identity):
 ${buildColorInventory(resolved)}`
       : "Each card below shows the max copies you can use (capped at the format's 4-of rule). Never exceed those numbers.";
 
-  let userMessage = `Build a ${format} deck from this collection.\n\n${limitNote}\n\nCOLLECTION:\n${collectionContext}`;
+  const mainSize = format === "commander" ? 99 : 60;
+  let userMessage = `Build a ${format} deck from this collection.
+
+*** DECK SIZE: mainboard quantities MUST sum to exactly ${mainSize} ***
+Count every quantity in your mainboard before responding. Wrong size = rejected.
+
+${limitNote}
+
+COLLECTION:
+${collectionContext}`;
 
   if (prefColors.length) {
     const colorList = formatColorIdentity(prefColors);

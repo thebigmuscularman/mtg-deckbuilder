@@ -30,6 +30,8 @@ export type DeckPrefs = {
   interactionDensity: InteractionDensity;
   gameLength: GameLength;
   landsTarget: number;
+  /** Empty string means "let the AI pick". Only relevant when format === "commander". */
+  chosenCommander: string;
   theme: "dark" | "light";
 };
 
@@ -47,6 +49,7 @@ export type DeckPrefsApi = DeckPrefs & {
   setInteractionDensity: (v: InteractionDensity) => void;
   setGameLength: (v: GameLength) => void;
   setLandsTarget: (n: number) => void;
+  setChosenCommander: (name: string) => void;
   setTheme: React.Dispatch<React.SetStateAction<"dark" | "light">>;
   applyPreset: (prefs: Partial<UserPrefs>) => void;
   hydrated: boolean;
@@ -66,6 +69,7 @@ const DEFAULTS: DeckPrefs = {
   interactionDensity: "balanced",
   gameLength: "balanced",
   landsTarget: 0,
+  chosenCommander: "",
   theme: "dark",
 };
 
@@ -89,6 +93,9 @@ export function useDeckPrefs(): DeckPrefsApi {
     useState<InteractionDensity>(DEFAULTS.interactionDensity);
   const [gameLength, setGameLength] = useState<GameLength>(DEFAULTS.gameLength);
   const [landsTarget, setLandsTarget] = useState(DEFAULTS.landsTarget);
+  const [chosenCommander, setChosenCommander] = useState(
+    DEFAULTS.chosenCommander,
+  );
   const [theme, setTheme] = useState<"dark" | "light">(DEFAULTS.theme);
 
   // Only the UI theme persists across sessions. Deck-build form values
@@ -137,6 +144,7 @@ export function useDeckPrefs(): DeckPrefsApi {
     interactionDensity,
     gameLength,
     landsTarget,
+    chosenCommander,
     theme,
     setFormat,
     setColors,
@@ -151,6 +159,7 @@ export function useDeckPrefs(): DeckPrefsApi {
     setInteractionDensity,
     setGameLength,
     setLandsTarget,
+    setChosenCommander,
     setTheme,
     applyPreset,
     hydrated,
@@ -158,6 +167,10 @@ export function useDeckPrefs(): DeckPrefsApi {
 }
 
 export function brewPayload(p: DeckPrefs, resolved: unknown) {
+  const chosenCommander =
+    p.format === "commander" && p.chosenCommander.trim()
+      ? p.chosenCommander.trim()
+      : undefined;
   return {
     format: p.format,
     resolved,
@@ -174,5 +187,6 @@ export function brewPayload(p: DeckPrefs, resolved: unknown) {
     interactionDensity: p.interactionDensity,
     gameLength: p.gameLength,
     landsTarget: p.landsTarget > 0 ? p.landsTarget : undefined,
+    chosenCommander,
   };
 }

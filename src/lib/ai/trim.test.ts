@@ -341,6 +341,203 @@ describe("trimDeckToCollection", () => {
     expect(lands).toBe(24);
   });
 
+  it("honors a user-chosen commander even when the AI picked a different one", () => {
+    const krenko = mockCard({
+      name: "Krenko, Mob Boss",
+      type_line: "Legendary Creature — Goblin Warrior",
+      color_identity: ["R"],
+    });
+    const purphoros = mockCard({
+      name: "Purphoros, God of the Forge",
+      type_line: "Legendary Enchantment Creature — God",
+      color_identity: ["R"],
+    });
+    const goblin = mockCard({
+      name: "Goblin Guide",
+      type_line: "Creature — Goblin Scout",
+      color_identity: ["R"],
+    });
+    const coll = [
+      resolved({ name: "Krenko, Mob Boss", quantity: 1 }, krenko),
+      resolved({ name: "Purphoros, God of the Forge", quantity: 1 }, purphoros),
+      resolved({ name: "Goblin Guide", quantity: 1 }, goblin),
+      resolved({ name: "Sol Ring", quantity: 1 }, solRing),
+      resolved({ name: "Mountain", quantity: 100 }, mountain),
+    ];
+    const deck: BuiltDeck = {
+      name: "Goblin Tribal",
+      description: "d",
+      format: "commander",
+      commander: "Purphoros, God of the Forge",
+      commanderReason: "Free damage on each goblin ETB.",
+      mainboard: [
+        { name: "Goblin Guide", quantity: 1 },
+        { name: "Sol Ring", quantity: 1 },
+        ...Array.from({ length: 97 }, () => ({
+          name: "Mountain",
+          quantity: 1,
+        })),
+      ],
+      sideboard: [],
+      strategy: "s",
+      warnings: [],
+    };
+    const { deck: trimmed, adjustments } = trimDeckToCollection(
+      deck,
+      coll,
+      undefined,
+      undefined,
+      { chosenCommander: "Krenko, Mob Boss" },
+    );
+    expect(trimmed.commander).toBe("Krenko, Mob Boss");
+    expect(
+      adjustments.some((a) => a.includes("user-chosen commander Krenko")),
+    ).toBe(true);
+  });
+
+  it("locks deck color identity to the chosen commander, dropping off-color cards", () => {
+    const krenko = mockCard({
+      name: "Krenko, Mob Boss",
+      type_line: "Legendary Creature — Goblin Warrior",
+      color_identity: ["R"],
+    });
+    const blueSpell = mockCard({
+      name: "Counterspell",
+      type_line: "Instant",
+      color_identity: ["U"],
+    });
+    const redSpell = mockCard({
+      name: "Lightning Bolt",
+      type_line: "Instant",
+      color_identity: ["R"],
+    });
+    const coll = [
+      resolved({ name: "Krenko, Mob Boss", quantity: 1 }, krenko),
+      resolved({ name: "Counterspell", quantity: 1 }, blueSpell),
+      resolved({ name: "Lightning Bolt", quantity: 1 }, redSpell),
+      resolved({ name: "Mountain", quantity: 100 }, mountain),
+    ];
+    // AI returned a different commander (Counterspell shouldn't even be legal,
+    // but we want to prove trim re-locks identity to the chosen commander).
+    const deck: BuiltDeck = {
+      name: "Mistaken Build",
+      description: "d",
+      format: "commander",
+      commander: null,
+      mainboard: [
+        { name: "Counterspell", quantity: 1 },
+        { name: "Lightning Bolt", quantity: 1 },
+        ...Array.from({ length: 97 }, () => ({
+          name: "Mountain",
+          quantity: 1,
+        })),
+      ],
+      sideboard: [],
+      strategy: "s",
+      warnings: [],
+    };
+    const { deck: trimmed, adjustments } = trimDeckToCollection(
+      deck,
+      coll,
+      undefined,
+      undefined,
+      { chosenCommander: "Krenko, Mob Boss" },
+    );
+    expect(trimmed.commander).toBe("Krenko, Mob Boss");
+    expect(trimmed.mainboard.some((l) => l.name === "Counterspell")).toBe(
+      false,
+    );
+    expect(trimmed.mainboard.some((l) => l.name === "Lightning Bolt")).toBe(
+      true,
+    );
+    expect(
+      adjustments.some((a) =>
+        a.includes("outside commander color identity"),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags but does not drop a chosen commander that violates other prefs", () => {
+    const krenko = mockCard({
+      name: "Krenko, Mob Boss",
+      type_line: "Legendary Creature — Goblin Warrior",
+      color_identity: ["R"],
+    });
+    const coll = [
+      resolved({ name: "Krenko, Mob Boss", quantity: 1 }, krenko),
+      resolved({ name: "Mountain", quantity: 100 }, mountain),
+    ];
+    const deck: BuiltDeck = {
+      name: "Goblins",
+      description: "d",
+      format: "commander",
+      commander: "Krenko, Mob Boss",
+      mainboard: Array.from({ length: 99 }, () => ({
+        name: "Mountain",
+        quantity: 1,
+      })),
+      sideboard: [],
+      strategy: "s",
+      warnings: [],
+    };
+    const { deck: trimmed, adjustments } = trimDeckToCollection(
+      deck,
+      coll,
+      undefined,
+      undefined,
+      {
+        chosenCommander: "Krenko, Mob Boss",
+        avoidCards: ["Krenko, Mob Boss"],
+      },
+    );
+    expect(trimmed.commander).toBe("Krenko, Mob Boss");
+    expect(
+      adjustments.some((a) =>
+        a.includes("User-chosen commander Krenko, Mob Boss is also on the ban list"),
+      ),
+    ).toBe(true);
+  });
+
+  it("falls back to the AI's commander when the chosen one is not in the collection", () => {
+    const krenko = mockCard({
+      name: "Krenko, Mob Boss",
+      type_line: "Legendary Creature — Goblin Warrior",
+      color_identity: ["R"],
+    });
+    const coll = [
+      resolved({ name: "Krenko, Mob Boss", quantity: 1 }, krenko),
+      resolved({ name: "Mountain", quantity: 100 }, mountain),
+    ];
+    const deck: BuiltDeck = {
+      name: "Goblins",
+      description: "d",
+      format: "commander",
+      commander: "Krenko, Mob Boss",
+      commanderReason: "AI rationale",
+      mainboard: Array.from({ length: 99 }, () => ({
+        name: "Mountain",
+        quantity: 1,
+      })),
+      sideboard: [],
+      strategy: "s",
+      warnings: [],
+    };
+    const { deck: trimmed, adjustments } = trimDeckToCollection(
+      deck,
+      coll,
+      undefined,
+      undefined,
+      { chosenCommander: "Atraxa, Praetors' Voice" },
+    );
+    expect(trimmed.commander).toBe("Krenko, Mob Boss");
+    expect(trimmed.commanderReason).toBe("AI rationale");
+    expect(
+      adjustments.some((a) =>
+        a.includes("User-chosen commander \"Atraxa, Praetors' Voice\" was not found"),
+      ),
+    ).toBe(true);
+  });
+
   it("drops cards over budget cap", () => {
     const expensive = mockCard({
       name: "Expensive Rock",

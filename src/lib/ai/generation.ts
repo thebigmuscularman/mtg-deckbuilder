@@ -68,8 +68,15 @@ async function generatePlan(
     args.format,
     prefColors,
   );
+  const chosenCommander =
+    args.format === "commander"
+      ? args.brewPrefs?.chosenCommander?.trim() || undefined
+      : undefined;
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    { role: "system", content: planSystemPrompt(args.format) },
+    {
+      role: "system",
+      content: planSystemPrompt(args.format, chosenCommander),
+    },
     {
       role: "user",
       content: planUserPrompt(
@@ -77,6 +84,7 @@ async function generatePlan(
         collectionContext,
         prefColors,
         args.strategyHint,
+        chosenCommander,
       ),
     },
   ];
@@ -158,9 +166,14 @@ export async function runDeckGeneration(
     });
     planMessages = [
       { role: "assistant", content: planJson },
-      { role: "user", content: buildExecutionUserMessage(planJson) },
+      {
+        role: "user",
+        content: buildExecutionUserMessage(planJson, args.format),
+      },
     ];
   }
+
+  const targetMainSize = args.format === "commander" ? 99 : 60;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
@@ -199,6 +212,29 @@ export async function runDeckGeneration(
       lastErrors = parsed.error.issues.map(
         (i) => `${i.path.join(".") || "deck"}: ${i.message}`,
       );
+      continue;
+    }
+
+    // Pre-trim size enforcement: trim happily pads with basics, which masks the
+    // model returning a short list. Force a retry on size misses so the model
+    // has to fill its own slots before we fall through to padding. On the last
+    // attempt, fall through to trim — a deck with warnings beats a hard error.
+    const rawMainSize = parsed.data.mainboard.reduce(
+      (s, l) => s + l.quantity,
+      0,
+    );
+    const sizeDelta = rawMainSize - targetMainSize;
+    const isLastAttempt = attempt === maxAttempts - 1;
+    if (sizeDelta !== 0 && !isLastAttempt) {
+      const direction = sizeDelta < 0 ? "short" : "over";
+      const abs = Math.abs(sizeDelta);
+      lastErrors = [
+        `Mainboard quantity sum = ${rawMainSize}, but it MUST be exactly ${targetMainSize} (you were ${abs} ${direction}). Add or remove cards from the collection until the mainboard quantities sum to ${targetMainSize}. Do not return a short list expecting it to be padded — fill every slot yourself.`,
+      ];
+      onProgress?.({
+        type: "status",
+        message: `Mainboard was ${abs} ${direction} (${rawMainSize}/${targetMainSize}) — asking the model to fix it…`,
+      });
       continue;
     }
 
