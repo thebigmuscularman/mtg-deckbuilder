@@ -215,21 +215,19 @@ export async function runDeckGeneration(
       continue;
     }
 
-    // Pre-trim size enforcement: trim happily pads with basics, which masks the
-    // model returning a short list. Force a retry on size misses so the model
-    // has to fill its own slots before we fall through to padding. On the last
-    // attempt, fall through to trim — a deck with warnings beats a hard error.
+    // Pre-trim size gate: the AI must return the exact mainboard quantity on
+    // its own. We retry on every miss — trim's basic-padding is no longer an
+    // escape hatch, so a too-short list never makes it past this loop.
     const rawMainSize = parsed.data.mainboard.reduce(
       (s, l) => s + l.quantity,
       0,
     );
     const sizeDelta = rawMainSize - targetMainSize;
-    const isLastAttempt = attempt === maxAttempts - 1;
-    if (sizeDelta !== 0 && !isLastAttempt) {
+    if (sizeDelta !== 0) {
       const direction = sizeDelta < 0 ? "short" : "over";
       const abs = Math.abs(sizeDelta);
       lastErrors = [
-        `Mainboard quantity sum = ${rawMainSize}, but it MUST be exactly ${targetMainSize} (you were ${abs} ${direction}). Add or remove cards from the collection until the mainboard quantities sum to ${targetMainSize}. Do not return a short list expecting it to be padded — fill every slot yourself.`,
+        `Mainboard quantity sum = ${rawMainSize}, but it MUST be exactly ${targetMainSize} (you were ${abs} ${direction}). Add or remove cards from the collection until the mainboard quantities sum to ${targetMainSize}. Every slot must be filled from the collection — basic lands are always available if you need to round out the mana base.`,
       ];
       onProgress?.({
         type: "status",
@@ -240,7 +238,33 @@ export async function runDeckGeneration(
 
     const { deck, adjustments } = applyTrim(parsed.data, args);
     if (adjustments.length) deck.warnings = [...deck.warnings, ...adjustments];
-    lastTrimmedDeck = deck;
+
+    // Post-trim size gate: trim may have removed illegal/wrong-color cards.
+    // If that drops us under target, the deck is unfit to ship — retry instead
+    // of returning a short list with a warning slapped on it.
+    const trimmedMainSize = deck.mainboard.reduce(
+      (s, l) => s + l.quantity,
+      0,
+    );
+    const commanderCount =
+      args.format === "commander" && deck.commander ? 1 : 0;
+    const targetTotal = targetMainSize + commanderCount;
+    const finalTotal = trimmedMainSize + commanderCount;
+    if (finalTotal !== targetTotal) {
+      lastErrors = [
+        `After trimming illegal or out-of-color cards, mainboard was ${trimmedMainSize}/${targetMainSize}` +
+          (args.format === "commander" && !deck.commander
+            ? " and no valid commander was set"
+            : "") +
+          `. Return a fresh ${targetMainSize}-card mainboard using only legal collection cards that match the commander's color identity (basic lands always allowed).`,
+      ];
+      lastTrimmedDeck = deck;
+      onProgress?.({
+        type: "status",
+        message: `Trim left ${finalTotal}/${targetTotal} cards — asking the model to rebuild…`,
+      });
+      continue;
+    }
 
     const validation = validateDeck(deck, resolved, {
       allowIllegal: brewPrefs?.allowIllegal,
@@ -250,11 +274,20 @@ export async function runDeckGeneration(
       return { deck, validationErrors: [] };
     }
     lastErrors = validation.errors;
+    lastTrimmedDeck = deck;
   }
 
-  if (!lastTrimmedDeck) {
-    throw new Error(`Deck generation failed: ${lastErrors.join("; ")}`);
-  }
-  lastTrimmedDeck.warnings = [...lastTrimmedDeck.warnings, ...lastErrors];
-  return { deck: lastTrimmedDeck, validationErrors: lastErrors };
+  // Strict mode: never ship a wrong-sized deck. Throwing surfaces as a 500 to
+  // the API route, which is the correct UX for "we couldn't make it work" —
+  // it's better than handing the user a 59-card Commander deck.
+  const summary = lastTrimmedDeck
+    ? ` Last attempt was ${lastTrimmedDeck.mainboard.reduce((s, l) => s + l.quantity, 0)}/${targetMainSize} mainboard cards${
+        args.format === "commander" && lastTrimmedDeck.commander
+          ? ` + ${lastTrimmedDeck.commander}`
+          : ""
+      }.`
+    : "";
+  throw new Error(
+    `Couldn't build a complete ${args.format} deck after ${maxAttempts} attempts.${summary} The AI may be returning short lists for this collection — try widening colors, adding more cards, relaxing budget/ban filters, or simplifying the strategy brief.`,
+  );
 }

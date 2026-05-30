@@ -52,7 +52,7 @@ function baseMessages(
 }
 
 export function buildDeckWithAI(args: BrewArgs): Promise<DeckResult> {
-  return runDeckGeneration(args, baseMessages(args), 4);
+  return runDeckGeneration(args, baseMessages(args), 6);
 }
 
 export function shoreUpDeckWithAI(

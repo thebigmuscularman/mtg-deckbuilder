@@ -120,7 +120,7 @@ ${plan}
 
 *** HARD SIZE REQUIREMENT — NON-NEGOTIABLE ***
 The "mainboard" array MUST sum to EXACTLY ${mainSize} cards${commanderNote}.
-Before you finish writing JSON, ADD UP every "quantity" in your mainboard array. If the total is not ${mainSize}, you MUST add or remove cards until it is. A deck that misses this count will be rejected and you will be asked to redo it.
+Before you finish writing JSON, ADD UP every "quantity" in your mainboard array. If the total is not ${mainSize}, you MUST add or remove cards until it is. A wrong count will be REJECTED and the user will see an error — no padding, no warnings, no "close enough". Fill every slot from the collection; basic lands (Plains, Island, Swamp, Mountain, Forest) are always available if you need to round out the mana base.
 
 EXECUTION RULES:
 - Mainboard quantity sum = ${mainSize}. Count it. If it's not ${mainSize}, fix it before responding.
@@ -154,7 +154,7 @@ ABSOLUTE RULES — violating any of these will cause the deck to be auto-trimmed
 - Never invent, hallucinate, or guess at cards. If a card you want isn't listed, don't include it.
 - The sum of all mainboard quantities MUST equal the exact mainboard size for the format. Count carefully before responding. Do not overshoot or undershoot by even one card.
 - For Commander, the mainboard is EXACTLY 99 cards (the commander is separate). For Standard/Modern, the mainboard is EXACTLY 60 cards.${singletonReminder}
-- Before you finish writing JSON, ADD UP every "quantity" in your mainboard array. If the total is not the format's exact size, FIX IT — add or remove cards yourself. Returning a short list is a failure; trim will not fill your slots for you.
+- Before you finish writing JSON, ADD UP every "quantity" in your mainboard array. If the total is not the format's exact size, FIX IT — add or remove cards yourself. A wrong count will be REJECTED and the user will see an error. Basic lands (Plains, Island, Swamp, Mountain, Forest) are always available — add them to round out the mana base if you need filler.
 
 ${formatRulesPrompt(format, landsTargetOverride)}
 
