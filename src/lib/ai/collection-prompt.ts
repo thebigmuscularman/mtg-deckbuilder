@@ -1,5 +1,5 @@
 import { collectionToPromptList } from "../collection";
-import { getFormat, isBasicLand } from "../formats";
+import { getFormat } from "../formats";
 import { buildOwnedIndex } from "../deck-validation";
 import type { FormatId, ResolvedCollectionCard, ScryfallCard } from "../types";
 import { getDisplayName } from "../scryfall";
@@ -31,9 +31,15 @@ function gatherPromptCards(
   const out: PromptCard[] = [];
   for (const entry of owned.values()) {
     if (seen.has(entry.card.id)) continue;
+    // Strip lands entirely. The mana base is auto-built post-hoc from the
+    // user's lands-slider target, so the AI never picks lands and never
+    // miscounts them. Without this, the AI burns slots picking fetches,
+    // shocks, and Command Tower instead of focusing on spells.
+    const typeLine = (entry.card.type_line ?? "").toLowerCase();
+    if (typeLine.includes("land")) continue;
     seen.add(entry.card.id);
     const name = getDisplayName(entry.card);
-    const formatMax = isBasicLand(name) ? 99 : formatRules.maxCopies(entry.card);
+    const formatMax = formatRules.maxCopies(entry.card);
     const card = entry.card;
     out.push({
       name,
