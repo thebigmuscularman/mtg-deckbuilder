@@ -6,7 +6,16 @@ import { swapResponseSchema } from "./deck-schema";
 import { trimDeckToCollection } from "./trim";
 import { nameKey } from "../scryfall";
 import { requireOpenAIKey, runDeckGeneration } from "./generation";
+import { defaultLandsTargetFor, spellTargetFor } from "./mana-base";
 import type { BrewArgs, DeckResult } from "./types";
+
+function spellTargetFromArgs(args: BrewArgs): number {
+  const lands =
+    args.brewPrefs?.landsTarget && args.brewPrefs.landsTarget > 0
+      ? args.brewPrefs.landsTarget
+      : defaultLandsTargetFor(args.format);
+  return spellTargetFor(args.format, lands);
+}
 
 function serializePreviousDeck(deck: BuiltDeck): string {
   return JSON.stringify(
@@ -32,10 +41,15 @@ function serializePreviousDeck(deck: BuiltDeck): string {
 function baseMessages(
   args: BrewArgs,
 ): OpenAI.Chat.ChatCompletionMessageParam[] {
+  const spellTarget = spellTargetFromArgs(args);
   return [
     {
       role: "system",
-      content: systemPrompt(args.format, args.brewPrefs?.landsTarget),
+      content: systemPrompt(
+        args.format,
+        args.brewPrefs?.landsTarget,
+        spellTarget,
+      ),
     },
     {
       role: "user",
@@ -52,7 +66,7 @@ function baseMessages(
 }
 
 export function buildDeckWithAI(args: BrewArgs): Promise<DeckResult> {
-  return runDeckGeneration(args, baseMessages(args), 3);
+  return runDeckGeneration(args, baseMessages(args), 6);
 }
 
 export function shoreUpDeckWithAI(

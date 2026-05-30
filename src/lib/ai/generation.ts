@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { validateDeck } from "../deck-validation";
+import { validateDeck, buildOwnedIndex } from "../deck-validation";
 import type { BuiltDeck } from "../types";
 import { deckPlanSchema, deckSchema, type DeckPlan } from "./deck-schema";
 import {
@@ -10,6 +10,12 @@ import {
 import { buildCollectionContext } from "./collection-prompt";
 import { sortWubrg } from "./color-utils";
 import { trimDeckToCollection } from "./trim";
+import {
+  applyAutoManaBase,
+  defaultLandsTargetFor,
+  spellTargetFor,
+} from "./mana-base";
+import { nameKey } from "../scryfall";
 import type { BrewArgs, DeckResult } from "./types";
 
 const MODEL = () => process.env.OPENAI_MODEL ?? "gpt-4o-mini";
@@ -59,6 +65,7 @@ async function getRawCompletion(
 async function generatePlan(
   client: OpenAI,
   args: BrewArgs,
+  landsTarget: number,
 ): Promise<DeckPlan> {
   const prefColors = sortWubrg(
     (args.colorPref ?? []).filter((c) => "WUBRG".includes(c)),
@@ -68,8 +75,15 @@ async function generatePlan(
     args.format,
     prefColors,
   );
+  const chosenCommander =
+    args.format === "commander"
+      ? args.brewPrefs?.chosenCommander?.trim() || undefined
+      : undefined;
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    { role: "system", content: planSystemPrompt(args.format) },
+    {
+      role: "system",
+      content: planSystemPrompt(args.format, chosenCommander, landsTarget),
+    },
     {
       role: "user",
       content: planUserPrompt(
@@ -77,6 +91,7 @@ async function generatePlan(
         collectionContext,
         prefColors,
         args.strategyHint,
+        chosenCommander,
       ),
     },
   ];
@@ -113,14 +128,9 @@ async function generatePlan(
 }
 
 function applyTrim(
-  raw: ReturnType<typeof deckSchema.parse>,
+  rawDeck: BuiltDeck,
   args: BrewArgs,
 ): { deck: BuiltDeck; adjustments: string[] } {
-  const rawDeck: BuiltDeck = {
-    ...raw,
-    format: args.format,
-    warnings: raw.warnings ?? [],
-  };
   return trimDeckToCollection(
     rawDeck,
     args.resolved,
@@ -146,11 +156,25 @@ export async function runDeckGeneration(
   let lastErrors: string[] = [];
   let lastTrimmedDeck: BuiltDeck | null = null;
 
+  // Auto mana base: the AI never picks lands. We compute the lands target
+  // from the user's slider (or a sensible default) and the AI fills only
+  // the non-land slots. After the AI returns, we strip any lands it tried
+  // to sneak in and append our own mana base.
+  const totalMainSize = args.format === "commander" ? 99 : 60;
+  const landsTarget =
+    brewPrefs?.landsTarget && brewPrefs.landsTarget > 0
+      ? brewPrefs.landsTarget
+      : defaultLandsTargetFor(args.format);
+  const spellTarget = spellTargetFor(args.format, landsTarget);
+  const prefColors = sortWubrg(
+    (args.colorPref ?? []).filter((c) => "WUBRG".includes(c)),
+  );
+
   // Stage 1: commit to a strategic plan in a separate call. Skip for refine /
   // shore-up flows — they're already anchored to an existing deck.
   let planMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
   if (extraMessages.length === 0) {
-    const plan = await generatePlan(client, args);
+    const plan = await generatePlan(client, args, landsTarget);
     const planJson = JSON.stringify(plan, null, 2);
     onProgress?.({
       type: "status",
@@ -158,7 +182,10 @@ export async function runDeckGeneration(
     });
     planMessages = [
       { role: "assistant", content: planJson },
-      { role: "user", content: buildExecutionUserMessage(planJson) },
+      {
+        role: "user",
+        content: buildExecutionUserMessage(planJson, args.format, spellTarget),
+      },
     ];
   }
 
@@ -202,9 +229,108 @@ export async function runDeckGeneration(
       continue;
     }
 
-    const { deck, adjustments } = applyTrim(parsed.data, args);
-    if (adjustments.length) deck.warnings = [...deck.warnings, ...adjustments];
-    lastTrimmedDeck = deck;
+    // Strip any lands the AI snuck in, then size-gate against the spell
+    // target. The AI's job is to fill exactly `spellTarget` non-land slots;
+    // anything else gets retried.
+    const owned = buildOwnedIndex(args.resolved);
+    const isLandLine = (line: { name: string }): boolean => {
+      const card = owned.get(nameKey(line.name))?.card;
+      const tl = (card?.type_line ?? "").toLowerCase();
+      return (
+        tl.includes("land") ||
+        ["plains", "island", "swamp", "mountain", "forest", "wastes"].includes(
+          nameKey(line.name),
+        )
+      );
+    };
+    const stagedSpells = parsed.data.mainboard.filter((l) => !isLandLine(l));
+    const aiLandsCount = parsed.data.mainboard
+      .filter((l) => isLandLine(l))
+      .reduce((s, l) => s + l.quantity, 0);
+    const spellSum = stagedSpells.reduce((s, l) => s + l.quantity, 0);
+    const sizeDelta = spellSum - spellTarget;
+    if (sizeDelta !== 0) {
+      const direction = sizeDelta < 0 ? "short" : "over";
+      const abs = Math.abs(sizeDelta);
+      const landsBlurb =
+        aiLandsCount > 0
+          ? ` (You also returned ${aiLandsCount} lands; lands are auto-built — do NOT include them. Pick non-land cards only.)`
+          : "";
+      lastErrors = [
+        `Mainboard non-land quantity sum = ${spellSum}, but it MUST be exactly ${spellTarget} (you were ${abs} ${direction}).${landsBlurb} Add or remove non-land cards from the collection until the count is exactly ${spellTarget}.`,
+      ];
+      onProgress?.({
+        type: "status",
+        message: `Spell list was ${abs} ${direction} (${spellSum}/${spellTarget}) — asking the model to fix it…`,
+      });
+      continue;
+    }
+
+    // Append the auto mana base before trim so trim sees a full-sized deck.
+    const commanderName = parsed.data.commander ?? null;
+    const commanderCard = commanderName
+      ? owned.get(nameKey(commanderName))?.card ?? null
+      : null;
+    const commanderColors = commanderCard?.color_identity ?? [];
+    const manaBase = applyAutoManaBase(stagedSpells, owned, args.format, {
+      landsTarget,
+      commanderColors,
+      prefColors,
+    });
+    const manaSummary: string[] = [];
+    if (manaBase.staplesAdded.length) {
+      manaSummary.push(
+        `Auto mana base: included owned utility lands (${manaBase.staplesAdded.join(", ")}).`,
+      );
+    }
+    const basicsParts = Object.entries(manaBase.basicsAdded)
+      .filter(([, n]) => n > 0)
+      .map(([c, n]) => `${n} ${c}`)
+      .join(", ");
+    if (basicsParts) {
+      manaSummary.push(`Auto mana base: ${landsTarget} lands total, basics ${basicsParts}.`);
+    }
+    if (aiLandsCount > 0) {
+      manaSummary.push(
+        `Stripped ${aiLandsCount} land${aiLandsCount === 1 ? "" : "s"} the AI tried to include — mana base is auto-built.`,
+      );
+    }
+
+    const rawDeck: BuiltDeck = {
+      ...parsed.data,
+      mainboard: manaBase.mainboard,
+      format: args.format,
+      warnings: parsed.data.warnings ?? [],
+    };
+    const { deck, adjustments } = applyTrim(rawDeck, args);
+    deck.warnings = [...deck.warnings, ...manaSummary, ...adjustments];
+
+    // Post-trim size gate: trim may have removed illegal/wrong-color cards.
+    // If that drops us under target, the deck is unfit to ship — retry instead
+    // of returning a short list with a warning slapped on it.
+    const trimmedMainSize = deck.mainboard.reduce(
+      (s, l) => s + l.quantity,
+      0,
+    );
+    const commanderCount =
+      args.format === "commander" && deck.commander ? 1 : 0;
+    const targetTotal = totalMainSize + commanderCount;
+    const finalTotal = trimmedMainSize + commanderCount;
+    if (finalTotal !== targetTotal) {
+      lastErrors = [
+        `After trimming illegal or out-of-color cards, mainboard was ${trimmedMainSize}/${totalMainSize}` +
+          (args.format === "commander" && !deck.commander
+            ? " and no valid commander was set"
+            : "") +
+          `. Return a fresh non-land list of exactly ${spellTarget} cards using only legal collection cards that match the commander's color identity (lands are auto-added).`,
+      ];
+      lastTrimmedDeck = deck;
+      onProgress?.({
+        type: "status",
+        message: `Trim left ${finalTotal}/${targetTotal} cards — asking the model to rebuild…`,
+      });
+      continue;
+    }
 
     const validation = validateDeck(deck, resolved, {
       allowIllegal: brewPrefs?.allowIllegal,
@@ -214,11 +340,20 @@ export async function runDeckGeneration(
       return { deck, validationErrors: [] };
     }
     lastErrors = validation.errors;
+    lastTrimmedDeck = deck;
   }
 
-  if (!lastTrimmedDeck) {
-    throw new Error(`Deck generation failed: ${lastErrors.join("; ")}`);
-  }
-  lastTrimmedDeck.warnings = [...lastTrimmedDeck.warnings, ...lastErrors];
-  return { deck: lastTrimmedDeck, validationErrors: lastErrors };
+  // Strict mode: never ship a wrong-sized deck. Throwing surfaces as a 500 to
+  // the API route, which is the correct UX for "we couldn't make it work" —
+  // it's better than handing the user a 59-card Commander deck.
+  const summary = lastTrimmedDeck
+    ? ` Last attempt was ${lastTrimmedDeck.mainboard.reduce((s, l) => s + l.quantity, 0)}/${totalMainSize} mainboard cards${
+        args.format === "commander" && lastTrimmedDeck.commander
+          ? ` + ${lastTrimmedDeck.commander}`
+          : ""
+      }.`
+    : "";
+  throw new Error(
+    `Couldn't build a complete ${args.format} deck after ${maxAttempts} attempts.${summary} The AI may be returning short lists for this collection — try widening colors, adding more cards, relaxing budget/ban filters, or simplifying the strategy brief.`,
+  );
 }

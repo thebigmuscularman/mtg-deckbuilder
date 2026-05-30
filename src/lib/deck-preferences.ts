@@ -36,6 +36,12 @@ export type DeckBuildPreferences = {
   gameLength?: GameLength;
   /** Target mainboard land count (e.g. 36 Commander, 24 aggro). */
   landsTarget?: number;
+  /**
+   * Commander chosen by the user. When set, the AI's planner is told to build
+   * around this exact card instead of picking one, and trim locks the deck's
+   * commander to it. Ignored for non-Commander formats.
+   */
+  chosenCommander?: string;
 };
 
 export function parseAvoidList(text: string): string[] {
@@ -221,11 +227,27 @@ export function getLandsTargetPromptBlock(
 This OVERRIDES the format default. The mainboard MUST include exactly ${landsTarget} lands (basic + nonbasic combined) and exactly ${spellSlots} non-land cards. If a power-level guideline or any earlier instruction suggests a different number, ignore it — the user's slider wins. Count lands explicitly before submitting.`;
 }
 
+export function getChosenCommanderPromptBlock(
+  format: string,
+  chosenCommander: string | undefined,
+): string | null {
+  if (!chosenCommander || format !== "commander") return null;
+  const name = chosenCommander.trim();
+  if (!name) return null;
+  return `*** USER-CHOSEN COMMANDER — HARD CONSTRAINT ***
+The user has explicitly chosen the commander for this deck: ${name}.
+- The "commander" field MUST be exactly "${name}". Do NOT pick a different commander.
+- The deck's color identity is locked to ${name}'s color identity. Every other card's color identity must be a subset of that.
+- Build the entire strategic plan AROUND this commander — synergies, win conditions, and key cards must serve ${name}.
+- Do not add ${name} as a 100th card in the mainboard; it goes in the commander slot only.`;
+}
+
 export function buildPreferencesPromptBlock(
   format: string,
   prefs: DeckBuildPreferences,
 ): string {
   const blocks = [
+    getChosenCommanderPromptBlock(format, prefs.chosenCommander),
     getMustIncludePromptBlock(prefs.mustIncludeCards ?? []),
     getAvoidListPromptBlock(prefs.avoidCards ?? []),
     getHouseRulesPromptBlock(prefs.houseRules ?? DEFAULT_HOUSE_RULES),

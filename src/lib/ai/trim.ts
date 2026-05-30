@@ -140,6 +140,41 @@ export function trimDeckToCollection(
     }
   }
 
+  // Lock the commander to the user's chosen pick BEFORE any color / ban /
+  // house-rule filtering. If the AI ignored the user's choice and returned
+  // a different commander, we replace it here — the chosen commander was
+  // an explicit user instruction. The subsequent color filters then use
+  // the chosen commander's identity, not whatever the AI was thinking.
+  const chosenCommanderName =
+    deck.format === "commander"
+      ? brewPrefs?.chosenCommander?.trim() || null
+      : null;
+  if (chosenCommanderName) {
+    const chosenEntry = owned.get(nameKey(chosenCommanderName));
+    if (!chosenEntry) {
+      adjustments.push(
+        `User-chosen commander "${chosenCommanderName}" was not found in the collection — falling back to the AI's pick.`,
+      );
+    } else {
+      const chosenDisplay = getDisplayName(chosenEntry.card);
+      const aiMatched =
+        commander && nameKey(commander) === nameKey(chosenDisplay);
+      if (!aiMatched) {
+        if (commander) {
+          adjustments.push(
+            `Replaced AI commander ${commander} with user-chosen commander ${chosenDisplay}.`,
+          );
+        } else {
+          adjustments.push(`Locked commander to user choice: ${chosenDisplay}.`);
+        }
+        // The AI's reason was for a different card — replace it.
+        commanderReason = `User-chosen commander.`;
+      }
+      commander = chosenDisplay;
+      commanderCard = chosenEntry.card;
+    }
+  }
+
   let trimmedMainboard = clampLines(deck.mainboard, "mainboard");
   let trimmedSideboard = clampLines(deck.sideboard, "sideboard");
 
@@ -227,12 +262,20 @@ export function trimDeckToCollection(
         deck.format === "commander" ? !exactMatch : strictlyOutside;
 
       if (shouldDrop) {
-        adjustments.push(
-          `Dropped commander ${commander} — identity ${formatColorIdentity([...commanderIdentity])} does not match requested ${formatColorIdentity(prefColors)}. Pick a legendary creature whose identity is exactly that.`,
-        );
-        commander = null;
-        commanderReason = undefined;
-        commanderCard = null;
+        if (chosenCommanderName) {
+          // The user explicitly chose this commander — their pick beats the
+          // color toggles. Flag the mismatch but keep the commander.
+          adjustments.push(
+            `User-chosen commander ${commander} (${formatColorIdentity([...commanderIdentity])}) does not match requested colors ${formatColorIdentity(prefColors)} — keeping the commander; non-matching cards may still be filtered out.`,
+          );
+        } else {
+          adjustments.push(
+            `Dropped commander ${commander} — identity ${formatColorIdentity([...commanderIdentity])} does not match requested ${formatColorIdentity(prefColors)}. Pick a legendary creature whose identity is exactly that.`,
+          );
+          commander = null;
+          commanderReason = undefined;
+          commanderCard = null;
+        }
       }
     }
   }
@@ -294,19 +337,31 @@ export function trimDeckToCollection(
     if (commander && commanderCard) {
       const display = getDisplayName(commanderCard);
       if (avoidKeys.size && isNameAvoided(display, avoidKeys)) {
-        adjustments.push(`Dropped commander ${display} — on user ban list.`);
-        commander = null;
-        commanderReason = undefined;
-        commanderCard = null;
-      } else if (enforceHouseRules) {
-        const violation = cardViolatesHouseRules(commanderCard, houseRules);
-        if (violation) {
+        if (chosenCommanderName) {
           adjustments.push(
-            `Dropped commander ${display} — violates house rule (${violation}).`,
+            `User-chosen commander ${display} is also on the ban list — honoring the explicit commander choice; review your ban list if this was a mistake.`,
           );
+        } else {
+          adjustments.push(`Dropped commander ${display} — on user ban list.`);
           commander = null;
           commanderReason = undefined;
           commanderCard = null;
+        }
+      } else if (enforceHouseRules) {
+        const violation = cardViolatesHouseRules(commanderCard, houseRules);
+        if (violation) {
+          if (chosenCommanderName) {
+            adjustments.push(
+              `User-chosen commander ${display} violates a house rule (${violation}) — honoring the explicit choice; review your house rules if unintended.`,
+            );
+          } else {
+            adjustments.push(
+              `Dropped commander ${display} — violates house rule (${violation}).`,
+            );
+            commander = null;
+            commanderReason = undefined;
+            commanderCard = null;
+          }
         }
       }
     }

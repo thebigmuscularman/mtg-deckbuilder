@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useMemo } from "react";
+import { getCommanderCandidates } from "@/lib/commander-candidates";
 import { FORMATS } from "@/lib/formats";
 import { POWER_LEVELS, type PowerLevelId } from "@/lib/power-levels";
 import { formatUsd } from "@/lib/prices";
@@ -43,6 +45,28 @@ export function ReviewStep({
 }: ReviewStepProps) {
   const { format, colors, powerLevel } = prefs;
   const disabled = loading || summary.unique < 10;
+
+  const commanderCandidates = useMemo(
+    () => (format === "commander" ? getCommanderCandidates(resolved) : []),
+    [format, resolved],
+  );
+
+  const chosenCommander = prefs.chosenCommander;
+  const setChosenCommander = prefs.setChosenCommander;
+  // Clear a stale pick if the user swaps formats, swaps collections, or
+  // removes the chosen card from the collection. We don't want to ship a
+  // chosenCommander string the AI / trim can't resolve.
+  useEffect(() => {
+    if (!chosenCommander) return;
+    if (format !== "commander") {
+      setChosenCommander("");
+      return;
+    }
+    const stillPresent = commanderCandidates.some(
+      (c) => c.name === chosenCommander,
+    );
+    if (!stillPresent) setChosenCommander("");
+  }, [format, commanderCandidates, chosenCommander, setChosenCommander]);
 
   return (
     <div className="fade-in-up space-y-6">
@@ -115,6 +139,14 @@ export function ReviewStep({
               ? `Commander identity must be exactly ${colors.join("")}.`
               : `Deck limited to ${colors.join("")}.`}
         </Hint>
+
+        {format === "commander" && (
+          <CommanderPicker
+            candidates={commanderCandidates}
+            value={prefs.chosenCommander}
+            onChange={prefs.setChosenCommander}
+          />
+        )}
 
         <SectionLabel>
           Strategy <span className="text-stone-600">(optional)</span>
@@ -252,6 +284,54 @@ export function ReviewStep({
         </div>
       </div>
     </div>
+  );
+}
+
+function CommanderPicker({
+  candidates,
+  value,
+  onChange,
+}: {
+  candidates: ReturnType<typeof getCommanderCandidates>;
+  value: string;
+  onChange: (name: string) => void;
+}) {
+  if (!candidates.length) {
+    return (
+      <>
+        <SectionLabel>
+          Commander <span className="text-stone-600">(optional)</span>
+        </SectionLabel>
+        <p className="mb-6 text-xs italic text-stone-500">
+          No legendary creatures (or other commander-eligible cards) found in
+          this collection — the AI will pick once you add some.
+        </p>
+      </>
+    );
+  }
+  return (
+    <>
+      <SectionLabel>
+        Commander <span className="text-stone-600">(optional)</span>
+      </SectionLabel>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="mb-2 w-full rounded-xl border border-stone-700/60 bg-stone-950/60 px-4 py-3 text-stone-100 focus:border-amber-500 focus:outline-none"
+      >
+        <option value="">Let the AI pick</option>
+        {candidates.map((c) => (
+          <option key={c.card.id} value={c.name}>
+            {c.name}
+          </option>
+        ))}
+      </select>
+      <Hint>
+        {value
+          ? `Locked: deck will be built around ${value} and limited to its color identity.`
+          : "Pick a commander to lock the AI to a specific legendary; leave on auto to let it choose."}
+      </Hint>
+    </>
   );
 }
 
